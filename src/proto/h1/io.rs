@@ -1,6 +1,5 @@
 use std::cmp;
 use std::fmt;
-#[cfg(feature = "server")]
 use std::future::Future;
 use std::io::{self, IoSlice};
 use std::marker::Unpin;
@@ -75,7 +74,6 @@ where
         }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_flush_pipeline(&mut self, enabled: bool) {
         debug_assert!(!self.write_buf.has_remaining());
         self.flush_pipeline = enabled;
@@ -94,7 +92,6 @@ where
         self.write_buf.max_buf_size = max;
     }
 
-    #[cfg(feature = "client")]
     pub(crate) fn set_read_buf_exact_size(&mut self, sz: usize) {
         self.read_buf_strategy = ReadStrategy::Exact(sz);
     }
@@ -183,13 +180,9 @@ where
                     cached_headers: parse_ctx.cached_headers,
                     req_method: parse_ctx.req_method,
                     h1_parser_config: parse_ctx.h1_parser_config.clone(),
-                    #[cfg(feature = "server")]
                     h1_header_read_timeout: parse_ctx.h1_header_read_timeout,
-                    #[cfg(feature = "server")]
                     h1_header_read_timeout_fut: parse_ctx.h1_header_read_timeout_fut,
-                    #[cfg(feature = "server")]
                     h1_header_read_timeout_running: parse_ctx.h1_header_read_timeout_running,
-                    #[cfg(feature = "server")]
                     timer: parse_ctx.timer.clone(),
                     preserve_header_case: parse_ctx.preserve_header_case,
                     #[cfg(feature = "ffi")]
@@ -202,7 +195,6 @@ where
                 Some(msg) => {
                     debug!("parsed {} headers", msg.head.headers.len());
 
-                    #[cfg(feature = "server")]
                     {
                         *parse_ctx.h1_header_read_timeout_running = false;
                         parse_ctx.h1_header_read_timeout_fut.take();
@@ -216,7 +208,6 @@ where
                         return Poll::Ready(Err(crate::Error::new_too_large()));
                     }
 
-                    #[cfg(feature = "server")]
                     if *parse_ctx.h1_header_read_timeout_running {
                         if let Some(h1_header_read_timeout_fut) =
                             parse_ctx.h1_header_read_timeout_fut
@@ -377,7 +368,6 @@ enum ReadStrategy {
         next: usize,
         max: usize,
     },
-    #[cfg(feature = "client")]
     Exact(usize),
 }
 
@@ -393,7 +383,6 @@ impl ReadStrategy {
     fn next(&self) -> usize {
         match *self {
             ReadStrategy::Adaptive { next, .. } => next,
-            #[cfg(feature = "client")]
             ReadStrategy::Exact(exact) => exact,
         }
     }
@@ -401,7 +390,6 @@ impl ReadStrategy {
     fn max(&self) -> usize {
         match *self {
             ReadStrategy::Adaptive { max, .. } => max,
-            #[cfg(feature = "client")]
             ReadStrategy::Exact(exact) => exact,
         }
     }
@@ -435,7 +423,6 @@ impl ReadStrategy {
                     }
                 }
             }
-            #[cfg(feature = "client")]
             ReadStrategy::Exact(_) => (),
         }
     }

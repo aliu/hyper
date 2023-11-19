@@ -39,27 +39,23 @@ pub(crate) trait Dispatch {
     fn should_poll(&self) -> bool;
 }
 
-cfg_server! {
-    use crate::service::HttpService;
+use crate::service::HttpService;
 
-    pub(crate) struct Server<S: HttpService<B>, B> {
-        in_flight: Pin<Box<Option<S::Future>>>,
-        pub(crate) service: S,
+pub(crate) struct Server<S: HttpService<B>, B> {
+    in_flight: Pin<Box<Option<S::Future>>>,
+    pub(crate) service: S,
+}
+
+pin_project_lite::pin_project! {
+    pub(crate) struct Client<B> {
+        callback: Option<crate::client::dispatch::Callback<Request<B>, http::Response<IncomingBody>>>,
+        #[pin]
+        rx: ClientRx<B>,
+        rx_closed: bool,
     }
 }
 
-cfg_client! {
-    pin_project_lite::pin_project! {
-        pub(crate) struct Client<B> {
-            callback: Option<crate::client::dispatch::Callback<Request<B>, http::Response<IncomingBody>>>,
-            #[pin]
-            rx: ClientRx<B>,
-            rx_closed: bool,
-        }
-    }
-
-    type ClientRx<B> = crate::client::dispatch::Receiver<Request<B>, http::Response<IncomingBody>>;
-}
+type ClientRx<B> = crate::client::dispatch::Receiver<Request<B>, http::Response<IncomingBody>>;
 
 impl<D, Bs, I, T> Dispatcher<D, Bs, I, T>
 where
@@ -84,7 +80,6 @@ where
         }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn disable_keep_alive(&mut self) {
         self.conn.disable_keep_alive();
 
@@ -467,201 +462,203 @@ impl<'a, T> Drop for OptGuard<'a, T> {
 
 // ===== impl Server =====
 
-cfg_server! {
-    impl<S, B> Server<S, B>
-    where
-        S: HttpService<B>,
-    {
-        pub(crate) fn new(service: S) -> Server<S, B> {
-            Server {
-                in_flight: Box::pin(None),
-                service,
-            }
-        }
-
-        pub(crate) fn into_service(self) -> S {
-            self.service
+impl<S, B> Server<S, B>
+where
+    S: HttpService<B>,
+{
+    pub(crate) fn new(service: S) -> Server<S, B> {
+        Server {
+            in_flight: Box::pin(None),
+            service,
         }
     }
 
-    // Service is never pinned
-    impl<S: HttpService<B>, B> Unpin for Server<S, B> {}
+    pub(crate) fn into_service(self) -> S {
+        self.service
+    }
+}
 
-    impl<S, Bs> Dispatch for Server<S, IncomingBody>
-    where
-        S: HttpService<IncomingBody, ResBody = Bs>,
-        S::Error: Into<Box<dyn StdError + Send + Sync>>,
-        Bs: Body,
-    {
-        type PollItem = MessageHead<http::StatusCode>;
-        type PollBody = Bs;
-        type PollError = S::Error;
-        type RecvItem = RequestHead;
+// Service is never pinned
+impl<S: HttpService<B>, B> Unpin for Server<S, B> {}
 
-        fn poll_msg(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-        ) -> Poll<Option<Result<(Self::PollItem, Self::PollBody), Self::PollError>>> {
-            let mut this = self.as_mut();
-            let ret = if let Some(ref mut fut) = this.in_flight.as_mut().as_pin_mut() {
-                let resp = ready!(fut.as_mut().poll(cx)?);
-                let (parts, body) = resp.into_parts();
-                let head = MessageHead {
-                    version: parts.version,
-                    subject: parts.status,
-                    headers: parts.headers,
-                    extensions: parts.extensions,
-                };
-                Poll::Ready(Some(Ok((head, body))))
-            } else {
-                unreachable!("poll_msg shouldn't be called if no inflight");
+impl<S, Bs> Dispatch for Server<S, IncomingBody>
+where
+    S: HttpService<IncomingBody, ResBody = Bs>,
+    S::Error: Into<Box<dyn StdError + Send + Sync>>,
+    Bs: Body,
+{
+    type PollItem = MessageHead<http::StatusCode>;
+    type PollBody = Bs;
+    type PollError = S::Error;
+    type RecvItem = RequestHead;
+
+    fn poll_msg(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<(Self::PollItem, Self::PollBody), Self::PollError>>> {
+        let mut this = self.as_mut();
+        let ret = if let Some(ref mut fut) = this.in_flight.as_mut().as_pin_mut() {
+            let resp = ready!(fut.as_mut().poll(cx)?);
+            let (parts, body) = resp.into_parts();
+            let head = MessageHead {
+                version: parts.version,
+                subject: parts.status,
+                headers: parts.headers,
+                extensions: parts.extensions,
             };
+            Poll::Ready(Some(Ok((head, body))))
+        } else {
+            unreachable!("poll_msg shouldn't be called if no inflight");
+        };
 
-            // Since in_flight finished, remove it
-            this.in_flight.set(None);
-            ret
-        }
+        // Since in_flight finished, remove it
+        this.in_flight.set(None);
+        ret
+    }
 
-        fn recv_msg(&mut self, msg: crate::Result<(Self::RecvItem, IncomingBody)>) -> crate::Result<()> {
-            let (msg, body) = msg?;
-            let mut req = Request::new(body);
-            *req.method_mut() = msg.subject.0;
-            *req.uri_mut() = msg.subject.1;
-            *req.headers_mut() = msg.headers;
-            *req.version_mut() = msg.version;
-            *req.extensions_mut() = msg.extensions;
-            let fut = self.service.call(req);
-            self.in_flight.set(Some(fut));
-            Ok(())
-        }
+    fn recv_msg(
+        &mut self,
+        msg: crate::Result<(Self::RecvItem, IncomingBody)>,
+    ) -> crate::Result<()> {
+        let (msg, body) = msg?;
+        let mut req = Request::new(body);
+        *req.method_mut() = msg.subject.0;
+        *req.uri_mut() = msg.subject.1;
+        *req.headers_mut() = msg.headers;
+        *req.version_mut() = msg.version;
+        *req.extensions_mut() = msg.extensions;
+        let fut = self.service.call(req);
+        self.in_flight.set(Some(fut));
+        Ok(())
+    }
 
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
-            if self.in_flight.is_some() {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+        if self.in_flight.is_some() {
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(()))
         }
+    }
 
-        fn should_poll(&self) -> bool {
-            self.in_flight.is_some()
-        }
+    fn should_poll(&self) -> bool {
+        self.in_flight.is_some()
     }
 }
 
 // ===== impl Client =====
 
-cfg_client! {
-    use std::convert::Infallible;
+use std::convert::Infallible;
 
-    impl<B> Client<B> {
-        pub(crate) fn new(rx: ClientRx<B>) -> Client<B> {
-            Client {
-                callback: None,
-                rx,
-                rx_closed: false,
+impl<B> Client<B> {
+    pub(crate) fn new(rx: ClientRx<B>) -> Client<B> {
+        Client {
+            callback: None,
+            rx,
+            rx_closed: false,
+        }
+    }
+}
+
+impl<B> Dispatch for Client<B>
+where
+    B: Body,
+{
+    type PollItem = RequestHead;
+    type PollBody = B;
+    type PollError = Infallible;
+    type RecvItem = crate::proto::ResponseHead;
+
+    fn poll_msg(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<(Self::PollItem, Self::PollBody), Infallible>>> {
+        let mut this = self.as_mut();
+        debug_assert!(!this.rx_closed);
+        match this.rx.poll_recv(cx) {
+            Poll::Ready(Some((req, mut cb))) => {
+                // check that future hasn't been canceled already
+                match cb.poll_canceled(cx) {
+                    Poll::Ready(()) => {
+                        trace!("request canceled");
+                        Poll::Ready(None)
+                    }
+                    Poll::Pending => {
+                        let (parts, body) = req.into_parts();
+                        let head = RequestHead {
+                            version: parts.version,
+                            subject: crate::proto::RequestLine(parts.method, parts.uri),
+                            headers: parts.headers,
+                            extensions: parts.extensions,
+                        };
+                        this.callback = Some(cb);
+                        Poll::Ready(Some(Ok((head, body))))
+                    }
+                }
+            }
+            Poll::Ready(None) => {
+                // user has dropped sender handle
+                trace!("client tx closed");
+                this.rx_closed = true;
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn recv_msg(
+        &mut self,
+        msg: crate::Result<(Self::RecvItem, IncomingBody)>,
+    ) -> crate::Result<()> {
+        match msg {
+            Ok((msg, body)) => {
+                if let Some(cb) = self.callback.take() {
+                    let res = msg.into_response(body);
+                    cb.send(Ok(res));
+                    Ok(())
+                } else {
+                    // Getting here is likely a bug! An error should have happened
+                    // in Conn::require_empty_read() before ever parsing a
+                    // full message!
+                    Err(crate::Error::new_unexpected_message())
+                }
+            }
+            Err(err) => {
+                if let Some(cb) = self.callback.take() {
+                    cb.send(Err((err, None)));
+                    Ok(())
+                } else if !self.rx_closed {
+                    self.rx.close();
+                    if let Some((req, cb)) = self.rx.try_recv() {
+                        trace!("canceling queued request with connection error: {}", err);
+                        // in this case, the message was never even started, so it's safe to tell
+                        // the user that the request was completely canceled
+                        cb.send(Err((crate::Error::new_canceled().with(err), Some(req))));
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                } else {
+                    Err(err)
+                }
             }
         }
     }
 
-    impl<B> Dispatch for Client<B>
-    where
-        B: Body,
-    {
-        type PollItem = RequestHead;
-        type PollBody = B;
-        type PollError = Infallible;
-        type RecvItem = crate::proto::ResponseHead;
-
-        fn poll_msg(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-        ) -> Poll<Option<Result<(Self::PollItem, Self::PollBody), Infallible>>> {
-            let mut this = self.as_mut();
-            debug_assert!(!this.rx_closed);
-            match this.rx.poll_recv(cx) {
-                Poll::Ready(Some((req, mut cb))) => {
-                    // check that future hasn't been canceled already
-                    match cb.poll_canceled(cx) {
-                        Poll::Ready(()) => {
-                            trace!("request canceled");
-                            Poll::Ready(None)
-                        }
-                        Poll::Pending => {
-                            let (parts, body) = req.into_parts();
-                            let head = RequestHead {
-                                version: parts.version,
-                                subject: crate::proto::RequestLine(parts.method, parts.uri),
-                                headers: parts.headers,
-                                extensions: parts.extensions,
-                            };
-                            this.callback = Some(cb);
-                            Poll::Ready(Some(Ok((head, body))))
-                        }
-                    }
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+        match self.callback {
+            Some(ref mut cb) => match cb.poll_canceled(cx) {
+                Poll::Ready(()) => {
+                    trace!("callback receiver has dropped");
+                    Poll::Ready(Err(()))
                 }
-                Poll::Ready(None) => {
-                    // user has dropped sender handle
-                    trace!("client tx closed");
-                    this.rx_closed = true;
-                    Poll::Ready(None)
-                }
-                Poll::Pending => Poll::Pending,
-            }
+                Poll::Pending => Poll::Ready(Ok(())),
+            },
+            None => Poll::Ready(Err(())),
         }
+    }
 
-        fn recv_msg(&mut self, msg: crate::Result<(Self::RecvItem, IncomingBody)>) -> crate::Result<()> {
-            match msg {
-                Ok((msg, body)) => {
-                    if let Some(cb) = self.callback.take() {
-                        let res = msg.into_response(body);
-                        cb.send(Ok(res));
-                        Ok(())
-                    } else {
-                        // Getting here is likely a bug! An error should have happened
-                        // in Conn::require_empty_read() before ever parsing a
-                        // full message!
-                        Err(crate::Error::new_unexpected_message())
-                    }
-                }
-                Err(err) => {
-                    if let Some(cb) = self.callback.take() {
-                        cb.send(Err((err, None)));
-                        Ok(())
-                    } else if !self.rx_closed {
-                        self.rx.close();
-                        if let Some((req, cb)) = self.rx.try_recv() {
-                            trace!("canceling queued request with connection error: {}", err);
-                            // in this case, the message was never even started, so it's safe to tell
-                            // the user that the request was completely canceled
-                            cb.send(Err((crate::Error::new_canceled().with(err), Some(req))));
-                            Ok(())
-                        } else {
-                            Err(err)
-                        }
-                    } else {
-                        Err(err)
-                    }
-                }
-            }
-        }
-
-        fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
-            match self.callback {
-                Some(ref mut cb) => match cb.poll_canceled(cx) {
-                    Poll::Ready(()) => {
-                        trace!("callback receiver has dropped");
-                        Poll::Ready(Err(()))
-                    }
-                    Poll::Pending => Poll::Ready(Ok(())),
-                },
-                None => Poll::Ready(Err(())),
-            }
-        }
-
-        fn should_poll(&self) -> bool {
-            self.callback.is_none()
-        }
+    fn should_poll(&self) -> bool {
+        self.callback.is_none()
     }
 }
 

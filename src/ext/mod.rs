@@ -1,25 +1,16 @@
 //! HTTP extensions.
 
 use bytes::Bytes;
-#[cfg(any(
-    all(any(feature = "client", feature = "server"), feature = "http1"),
-    feature = "ffi"
-))]
 use http::header::HeaderName;
-#[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
 use http::header::{IntoHeaderName, ValueIter};
 use http::HeaderMap;
 #[cfg(feature = "ffi")]
 use std::collections::HashMap;
-#[cfg(feature = "http2")]
 use std::fmt;
 
-#[cfg(any(feature = "http1", feature = "ffi"))]
 mod h1_reason_phrase;
-#[cfg(any(feature = "http1", feature = "ffi"))]
 pub use h1_reason_phrase::ReasonPhrase;
 
-#[cfg(feature = "http2")]
 /// Represents the `:protocol` pseudo-header used by
 /// the [Extended CONNECT Protocol].
 ///
@@ -29,7 +20,6 @@ pub struct Protocol {
     inner: h2::ext::Protocol,
 }
 
-#[cfg(feature = "http2")]
 impl Protocol {
     /// Converts a static string to a protocol name.
     pub const fn from_static(value: &'static str) -> Self {
@@ -43,18 +33,15 @@ impl Protocol {
         self.inner.as_str()
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn from_inner(inner: h2::ext::Protocol) -> Self {
         Self { inner }
     }
 
-    #[cfg(all(feature = "client", feature = "http2"))]
     pub(crate) fn into_inner(self) -> h2::ext::Protocol {
         self.inner
     }
 }
 
-#[cfg(feature = "http2")]
 impl<'a> From<&'a str> for Protocol {
     fn from(value: &'a str) -> Self {
         Self {
@@ -63,14 +50,12 @@ impl<'a> From<&'a str> for Protocol {
     }
 }
 
-#[cfg(feature = "http2")]
 impl AsRef<[u8]> for Protocol {
     fn as_ref(&self) -> &[u8] {
         self.inner.as_ref()
     }
 }
 
-#[cfg(feature = "http2")]
 impl fmt::Debug for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
@@ -101,11 +86,9 @@ impl fmt::Debug for Protocol {
 #[derive(Clone, Debug)]
 pub(crate) struct HeaderCaseMap(HeaderMap<Bytes>);
 
-#[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
 impl HeaderCaseMap {
     /// Returns a view of all spellings associated with that header name,
     /// in the order they were found.
-    #[cfg(feature = "client")]
     pub(crate) fn get_all<'a>(
         &'a self,
         name: &HeaderName,
@@ -115,12 +98,10 @@ impl HeaderCaseMap {
 
     /// Returns a view of all spellings associated with that header name,
     /// in the order they were found.
-    #[cfg(any(feature = "client", feature = "server"))]
     pub(crate) fn get_all_internal<'a>(&'a self, name: &HeaderName) -> ValueIter<'_, Bytes> {
         self.0.get_all(name).into_iter()
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     pub(crate) fn default() -> Self {
         Self(Default::default())
     }
@@ -130,7 +111,6 @@ impl HeaderCaseMap {
         self.0.insert(name, orig);
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     pub(crate) fn append<N>(&mut self, name: N, orig: Bytes)
     where
         N: IntoHeaderName,
@@ -154,7 +134,7 @@ pub(crate) struct OriginalHeaderOrder {
     entry_order: Vec<(HeaderName, usize)>,
 }
 
-#[cfg(all(feature = "http1", feature = "ffi"))]
+#[cfg(feature = "ffi")]
 impl OriginalHeaderOrder {
     pub(crate) fn default() -> Self {
         OriginalHeaderOrder {
@@ -190,14 +170,11 @@ impl OriginalHeaderOrder {
         self.entry_order.push((name, idx));
     }
 
-    // No doc test is run here because `RUSTFLAGS='--cfg hyper_unstable_ffi'`
-    // is needed to compile. Once ffi is stablized `no_run` should be removed
-    // here.
     /// This returns an iterator that provides header names and indexes
     /// in the original order received.
     ///
     /// # Examples
-    /// ```no_run
+    /// ```ignore
     /// use hyper::ext::OriginalHeaderOrder;
     /// use hyper::header::{HeaderName, HeaderValue, HeaderMap};
     ///

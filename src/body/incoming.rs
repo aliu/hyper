@@ -12,7 +12,6 @@ use http_body::{Body, Frame, SizeHint};
 
 use super::DecodedLength;
 use crate::common::watch;
-#[cfg(all(feature = "http2", any(feature = "client", feature = "server")))]
 use crate::proto::h2::ping;
 
 type BodySender = mpsc::Sender<Result<Bytes, crate::Error>>;
@@ -47,7 +46,6 @@ enum Kind {
         data_rx: mpsc::Receiver<Result<Bytes, crate::Error>>,
         trailers_rx: oneshot::Receiver<HeaderMap>,
     },
-    #[cfg(all(feature = "http2", any(feature = "client", feature = "server")))]
     H2 {
         content_length: DecodedLength,
         data_done: bool,
@@ -130,7 +128,6 @@ impl Incoming {
         Incoming::new(Kind::Ffi(crate::ffi::UserBody::new()))
     }
 
-    #[cfg(all(feature = "http2", any(feature = "client", feature = "server")))]
     pub(crate) fn h2(
         recv: h2::RecvStream,
         mut content_length: DecodedLength,
@@ -202,7 +199,6 @@ impl Body for Incoming {
                     Err(_) => Poll::Ready(None),
                 }
             }
-            #[cfg(all(feature = "http2", any(feature = "client", feature = "server")))]
             Kind::H2 {
                 ref mut data_done,
                 ref ping,
@@ -253,7 +249,6 @@ impl Body for Incoming {
         match self.kind {
             Kind::Empty => true,
             Kind::Chan { content_length, .. } => content_length == DecodedLength::ZERO,
-            #[cfg(all(feature = "http2", any(feature = "client", feature = "server")))]
             Kind::H2 { recv: ref h2, .. } => h2.is_end_stream(),
             #[cfg(feature = "ffi")]
             Kind::Ffi(..) => false,
@@ -276,7 +271,6 @@ impl Body for Incoming {
         match self.kind {
             Kind::Empty => SizeHint::with_exact(0),
             Kind::Chan { content_length, .. } => opt_len!(content_length),
-            #[cfg(all(feature = "http2", any(feature = "client", feature = "server")))]
             Kind::H2 { content_length, .. } => opt_len!(content_length),
             #[cfg(feature = "ffi")]
             Kind::Ffi(..) => SizeHint::default(),
@@ -355,7 +349,6 @@ impl Sender {
     /// This is mostly useful for when trying to send from some other thread
     /// that doesn't have an async context. If in an async context, prefer
     /// `send_data()` instead.
-    #[cfg(feature = "http1")]
     pub(crate) fn try_send_data(&mut self, chunk: Bytes) -> Result<(), Bytes> {
         self.data_tx
             .try_send(Ok(chunk))
@@ -460,7 +453,7 @@ mod tests {
         assert!(err.is_body_write_aborted(), "{:?}", err);
     }
 
-    #[cfg(all(not(miri), feature = "http1"))]
+    #[cfg(not(miri))]
     #[tokio::test]
     async fn channel_abort_when_buffer_is_full() {
         let (mut tx, mut rx) = Incoming::channel();
@@ -482,7 +475,6 @@ mod tests {
         assert!(err.is_body_write_aborted(), "{:?}", err);
     }
 
-    #[cfg(feature = "http1")]
     #[test]
     fn channel_buffers_one() {
         let (mut tx, _rx) = Incoming::channel();

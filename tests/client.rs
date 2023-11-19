@@ -1,3 +1,4 @@
+#![cfg(not(miri))]
 #![deny(warnings)]
 #![warn(rust_2018_idioms)]
 

@@ -13,19 +13,13 @@ use bytes::Bytes;
 /// the response will not contain a `ReasonPhrase`.
 ///
 /// ```no_run
-/// # #[cfg(all(feature = "tcp", feature = "client", feature = "http1"))]
-/// # async fn fake_fetch() -> hyper::Result<()> {
-/// use hyper::{Client, Uri};
+/// # let res = http::Response::new(());
 /// use hyper::ext::ReasonPhrase;
-///
-/// let res = Client::new().get(Uri::from_static("http://example.com/non_canonical_reason")).await?;
 ///
 /// // Print out the non-canonical reason phrase, if it has one...
 /// if let Some(reason) = res.extensions().get::<ReasonPhrase>() {
 ///     println!("non-canonical reason: {}", std::str::from_utf8(reason.as_bytes()).unwrap());
 /// }
-/// # Ok(())
-/// # }
 /// ```
 ///
 /// # Servers
@@ -55,7 +49,6 @@ impl ReasonPhrase {
     ///
     /// Use with care; invalid bytes in a reason phrase can cause serious security problems if
     /// emitted in a response.
-    #[cfg(feature = "client")]
     pub(crate) fn from_bytes_unchecked(reason: Bytes) -> Self {
         Self(reason)
     }

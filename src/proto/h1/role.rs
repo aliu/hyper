@@ -1,21 +1,16 @@
 use std::{fmt, mem::MaybeUninit};
 
-#[cfg(feature = "client")]
 use std::fmt::Write;
-#[cfg(feature = "server")]
 use std::time::Instant;
 
 use bytes::Bytes;
 use bytes::BytesMut;
-#[cfg(feature = "client")]
 use http::header::Entry;
-#[cfg(feature = "server")]
 use http::header::ValueIter;
 use http::header::{self, HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode, Version};
 
 use crate::body::DecodedLength;
-#[cfg(feature = "server")]
 use crate::common::date;
 use crate::error::Parse;
 use crate::ext::HeaderCaseMap;
@@ -25,13 +20,11 @@ use crate::headers;
 use crate::proto::h1::{
     Encode, Encoder, Http1Transaction, ParseContext, ParseResult, ParsedMessage,
 };
-#[cfg(feature = "client")]
 use crate::proto::RequestHead;
 use crate::proto::{BodyLength, MessageHead, RequestLine};
 
 const MAX_HEADERS: usize = 100;
 const AVERAGE_HEADER_SIZE: usize = 30; // totally scientific
-#[cfg(feature = "server")]
 const MAX_URI_LEN: usize = (u16::MAX - 1) as usize;
 
 macro_rules! header_name {
@@ -79,7 +72,6 @@ where
 
     let _entered = trace_span!("parse_headers");
 
-    #[cfg(feature = "server")]
     if !*ctx.h1_header_read_timeout_running {
         if let Some(h1_header_read_timeout) = ctx.h1_header_read_timeout {
             let deadline = Instant::now() + h1_header_read_timeout;
@@ -113,13 +105,10 @@ where
 
 // There are 2 main roles, Client and Server.
 
-#[cfg(feature = "client")]
 pub(crate) enum Client {}
 
-#[cfg(feature = "server")]
 pub(crate) enum Server {}
 
-#[cfg(feature = "server")]
 impl Http1Transaction for Server {
     type Incoming = RequestLine;
     type Outgoing = StatusCode;
@@ -464,7 +453,6 @@ impl Http1Transaction for Server {
     }
 }
 
-#[cfg(feature = "server")]
 impl Server {
     fn can_have_body(method: &Option<Method>, status: StatusCode) -> bool {
         Server::can_chunked(method, status)
@@ -903,7 +891,6 @@ impl Server {
     }
 }
 
-#[cfg(feature = "server")]
 trait HeaderNameWriter {
     fn write_full_header_line(
         &mut self,
@@ -920,7 +907,6 @@ trait HeaderNameWriter {
     fn write_header_name(&mut self, dst: &mut Vec<u8>, name: &HeaderName);
 }
 
-#[cfg(feature = "client")]
 impl Http1Transaction for Client {
     type Incoming = StatusCode;
     type Outgoing = RequestLine;
@@ -1147,7 +1133,6 @@ impl Http1Transaction for Client {
     }
 }
 
-#[cfg(feature = "client")]
 impl Client {
     /// Returns Some(length, wants_upgrade) if successful.
     ///
@@ -1387,7 +1372,6 @@ impl Client {
     }
 }
 
-#[cfg(feature = "client")]
 fn set_content_length(headers: &mut HeaderMap, len: u64) -> Encoder {
     // At this point, there should not be a valid Content-Length
     // header. However, since we'll be indexing in anyways, we can
@@ -1468,7 +1452,6 @@ fn title_case(dst: &mut Vec<u8>, name: &[u8]) {
     }
 }
 
-#[cfg(feature = "client")]
 fn write_headers_title_case(headers: &HeaderMap, dst: &mut Vec<u8>) {
     for (name, value) in headers {
         title_case(dst, name.as_str().as_bytes());
@@ -1478,7 +1461,6 @@ fn write_headers_title_case(headers: &HeaderMap, dst: &mut Vec<u8>) {
     }
 }
 
-#[cfg(feature = "client")]
 fn write_headers(headers: &HeaderMap, dst: &mut Vec<u8>) {
     for (name, value) in headers {
         extend(dst, name.as_str().as_bytes());
@@ -1489,7 +1471,6 @@ fn write_headers(headers: &HeaderMap, dst: &mut Vec<u8>) {
 }
 
 #[cold]
-#[cfg(feature = "client")]
 fn write_headers_original_case(
     headers: &HeaderMap,
     orig_case: &HeaderCaseMap,
@@ -2373,7 +2354,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "client")]
     #[test]
     fn test_client_obs_fold_line() {
         fn unfold(src: &str) -> String {

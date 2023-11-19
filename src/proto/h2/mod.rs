@@ -17,15 +17,11 @@ use crate::rt::{Read, ReadBufCursor, Write};
 
 pub(crate) mod ping;
 
-cfg_client! {
-    pub(crate) mod client;
-    pub(crate) use self::client::ClientTask;
-}
+pub(crate) mod client;
+pub(crate) use self::client::ClientTask;
 
-cfg_server! {
-    pub(crate) mod server;
-    pub(crate) use self::server::Server;
-}
+pub(crate) mod server;
+pub(crate) use self::server::Server;
 
 /// Default initial stream window size defined in HTTP2 spec.
 pub(crate) const SPEC_WINDOW_SIZE: u32 = 65_535;

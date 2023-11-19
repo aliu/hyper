@@ -4,7 +4,6 @@
 #![cfg_attr(all(test, feature = "full"), deny(unreachable_pub))]
 #![cfg_attr(all(test, feature = "full"), deny(warnings))]
 #![cfg_attr(all(test, feature = "nightly"), feature(test))]
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! # hyper
 //!
@@ -101,9 +100,6 @@ pub use crate::http::HeaderMap;
 pub use crate::error::{Error, Result};
 
 #[macro_use]
-mod cfg;
-
-#[macro_use]
 mod trace;
 
 #[macro_use]
@@ -111,29 +107,16 @@ mod common;
 pub mod body;
 mod error;
 pub mod ext;
-#[cfg(test)]
-mod mock;
 pub mod rt;
 pub mod service;
 pub mod upgrade;
 
 #[cfg(feature = "ffi")]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "ffi", hyper_unstable_ffi))))]
 pub mod ffi;
 
-cfg_proto! {
-    mod headers;
-    mod proto;
-}
+mod headers;
+mod proto;
 
-cfg_feature! {
-    #![feature = "client"]
+pub mod client;
 
-    pub mod client;
-}
-
-cfg_feature! {
-    #![feature = "server"]
-
-    pub mod server;
-}
+pub mod server;

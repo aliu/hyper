@@ -26,7 +26,6 @@ pub use http_body::SizeHint;
 
 pub use self::incoming::Incoming;
 
-#[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
 pub(crate) use self::incoming::Sender;
 pub(crate) use self::length::DecodedLength;
 

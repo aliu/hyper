@@ -13,7 +13,6 @@
 //! A simple example that uses the `SendRequest` struct to talk HTTP over some TCP stream.
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "client", feature = "http1"))]
 //! # mod rt {
 //! use bytes::Bytes;
 //! use http::{Request, StatusCode};
@@ -54,7 +53,5 @@
 //! # }
 //! ```
 
-#[cfg(feature = "http1")]
 pub mod http1;
-#[cfg(feature = "http2")]
 pub mod http2;

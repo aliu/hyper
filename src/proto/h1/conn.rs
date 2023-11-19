@@ -3,7 +3,6 @@ use std::io;
 use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-#[cfg(feature = "server")]
 use std::time::Duration;
 
 use crate::rt::{Read, Write};
@@ -15,11 +14,9 @@ use httparse::ParserConfig;
 use super::io::Buffered;
 use super::{Decoder, Encode, EncodedBuf, Encoder, Http1Transaction, ParseContext, Wants};
 use crate::body::DecodedLength;
-#[cfg(feature = "server")]
 use crate::common::time::Time;
 use crate::headers::connection_keep_alive;
 use crate::proto::{BodyLength, MessageHead};
-#[cfg(feature = "server")]
 use crate::rt::Sleep;
 
 const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -53,13 +50,9 @@ where
                 keep_alive: KA::Busy,
                 method: None,
                 h1_parser_config: ParserConfig::default(),
-                #[cfg(feature = "server")]
                 h1_header_read_timeout: None,
-                #[cfg(feature = "server")]
                 h1_header_read_timeout_fut: None,
-                #[cfg(feature = "server")]
                 h1_header_read_timeout_running: false,
-                #[cfg(feature = "server")]
                 timer: Time::Empty,
                 preserve_header_case: false,
                 #[cfg(feature = "ffi")]
@@ -80,12 +73,10 @@ where
         }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_timer(&mut self, timer: Time) {
         self.state.timer = timer;
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_flush_pipeline(&mut self, enabled: bool) {
         self.io.set_flush_pipeline(enabled);
     }
@@ -98,7 +89,6 @@ where
         self.io.set_max_buf_size(max);
     }
 
-    #[cfg(feature = "client")]
     pub(crate) fn set_read_buf_exact_size(&mut self, sz: usize) {
         self.io.set_read_buf_exact_size(sz);
     }
@@ -107,7 +97,6 @@ where
         self.io.set_write_strategy_flatten();
     }
 
-    #[cfg(feature = "client")]
     pub(crate) fn set_h1_parser_config(&mut self, parser_config: ParserConfig) {
         self.state.h1_parser_config = parser_config;
     }
@@ -125,17 +114,14 @@ where
         self.state.preserve_header_order = true;
     }
 
-    #[cfg(feature = "client")]
     pub(crate) fn set_h09_responses(&mut self) {
         self.state.h09_responses = true;
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_http1_header_read_timeout(&mut self, val: Duration) {
         self.state.h1_header_read_timeout = Some(val);
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_allow_half_close(&mut self) {
         self.state.allow_half_close = true;
     }
@@ -175,7 +161,6 @@ where
         }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn has_initial_read_write_state(&self) -> bool {
         matches!(self.state.reading, Reading::Init)
             && matches!(self.state.writing, Writing::Init)
@@ -205,13 +190,9 @@ where
                 cached_headers: &mut self.state.cached_headers,
                 req_method: &mut self.state.method,
                 h1_parser_config: self.state.h1_parser_config.clone(),
-                #[cfg(feature = "server")]
                 h1_header_read_timeout: self.state.h1_header_read_timeout,
-                #[cfg(feature = "server")]
                 h1_header_read_timeout_fut: &mut self.state.h1_header_read_timeout_fut,
-                #[cfg(feature = "server")]
                 h1_header_read_timeout_running: &mut self.state.h1_header_read_timeout_running,
-                #[cfg(feature = "server")]
                 timer: self.state.timer.clone(),
                 preserve_header_case: self.state.preserve_header_case,
                 #[cfg(feature = "ffi")]
@@ -546,7 +527,6 @@ where
             Encode {
                 head: &mut head,
                 body,
-                #[cfg(feature = "server")]
                 keep_alive: self.state.wants_keep_alive(),
                 req_method: &mut self.state.method,
                 title_case_headers: self.state.title_case_headers,
@@ -761,7 +741,6 @@ where
         self.state.close_write();
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn disable_keep_alive(&mut self) {
         if self.state.is_idle() {
             trace!("disable_keep_alive; closing idle connection");
@@ -813,13 +792,9 @@ struct State {
     /// a body or not.
     method: Option<Method>,
     h1_parser_config: ParserConfig,
-    #[cfg(feature = "server")]
     h1_header_read_timeout: Option<Duration>,
-    #[cfg(feature = "server")]
     h1_header_read_timeout_fut: Option<Pin<Box<dyn Sleep>>>,
-    #[cfg(feature = "server")]
     h1_header_read_timeout_running: bool,
-    #[cfg(feature = "server")]
     timer: Time,
     preserve_header_case: bool,
     #[cfg(feature = "ffi")]

@@ -1,4 +1,3 @@
-#[cfg(feature = "server")]
 use std::{pin::Pin, time::Duration};
 
 use bytes::BytesMut;
@@ -6,10 +5,8 @@ use http::{HeaderMap, Method};
 use httparse::ParserConfig;
 
 use crate::body::DecodedLength;
-#[cfg(feature = "server")]
 use crate::common::time::Time;
 use crate::proto::{BodyLength, MessageHead};
-#[cfg(feature = "server")]
 use crate::rt::Sleep;
 
 pub(crate) use self::conn::Conn;
@@ -26,13 +23,9 @@ mod encode;
 mod io;
 mod role;
 
-cfg_client! {
-    pub(crate) type ClientTransaction = role::Client;
-}
+pub(crate) type ClientTransaction = role::Client;
 
-cfg_server! {
-    pub(crate) type ServerTransaction = role::Server;
-}
+pub(crate) type ServerTransaction = role::Server;
 
 pub(crate) trait Http1Transaction {
     type Incoming;
@@ -78,13 +71,9 @@ pub(crate) struct ParseContext<'a> {
     cached_headers: &'a mut Option<HeaderMap>,
     req_method: &'a mut Option<Method>,
     h1_parser_config: ParserConfig,
-    #[cfg(feature = "server")]
     h1_header_read_timeout: Option<Duration>,
-    #[cfg(feature = "server")]
     h1_header_read_timeout_fut: &'a mut Option<Pin<Box<dyn Sleep>>>,
-    #[cfg(feature = "server")]
     h1_header_read_timeout_running: &'a mut bool,
-    #[cfg(feature = "server")]
     timer: Time,
     preserve_header_case: bool,
     #[cfg(feature = "ffi")]
@@ -98,7 +87,6 @@ pub(crate) struct ParseContext<'a> {
 pub(crate) struct Encode<'a, T> {
     head: &'a mut MessageHead<T>,
     body: Option<BodyLength>,
-    #[cfg(feature = "server")]
     keep_alive: bool,
     req_method: &'a mut Option<Method>,
     title_case_headers: bool,

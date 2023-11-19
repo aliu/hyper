@@ -582,7 +582,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "http1", feature = "ffi"))]
+    #[cfg(feature = "ffi")]
     #[test]
     fn test_headers_foreach_order_preserved() {
         let mut headers = hyper_headers::default();

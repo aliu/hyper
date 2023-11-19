@@ -45,55 +45,34 @@ pub(super) enum Kind {
     #[allow(unused)]
     IncompleteMessage,
     /// A connection received a message (or bytes) when not waiting for one.
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     UnexpectedMessage,
     /// A pending item was dropped before ever being processed.
     Canceled,
     /// Indicates a channel (client or body sender) is closed.
     ChannelClosed,
     /// An `io::Error` that occurred while trying to read or write to a network stream.
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     Io,
     /// User took too long to send headers
-    #[cfg(all(feature = "http1", feature = "server"))]
     HeaderTimeout,
     /// Error while reading a body from connection.
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     Body,
     /// Error while writing a body to connection.
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     BodyWrite,
     /// Error calling AsyncWrite::shutdown()
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     Shutdown,
 
     /// A general error from h2.
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http2"))]
     Http2,
 }
 
 #[derive(Debug)]
 pub(super) enum Parse {
     Method,
-    #[cfg(feature = "http1")]
     Version,
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     VersionH2,
     Uri,
-    #[cfg(all(feature = "http1", feature = "server"))]
     UriTooLong,
-    #[cfg(feature = "http1")]
     Header(Header),
-    #[cfg(any(feature = "http1", feature = "http2"))]
     TooLarge,
     Status,
     #[cfg_attr(debug_assertions, allow(unused))]
@@ -101,53 +80,35 @@ pub(super) enum Parse {
 }
 
 #[derive(Debug)]
-#[cfg(feature = "http1")]
 pub(super) enum Header {
     Token,
-    #[cfg(any(feature = "client", feature = "server"))]
     ContentLengthInvalid,
-    #[cfg(feature = "server")]
     TransferEncodingInvalid,
-    #[cfg(any(feature = "client", feature = "server"))]
     TransferEncodingUnexpected,
 }
 
 #[derive(Debug)]
 pub(super) enum User {
     /// Error calling user's Body::poll_data().
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     Body,
     /// The user aborted writing of the outgoing body.
     BodyWriteAborted,
     /// Error from future of user's Service.
-    #[cfg(any(
-        all(any(feature = "client", feature = "server"), feature = "http1"),
-        all(feature = "server", feature = "http2")
-    ))]
     Service,
     /// User tried to send a certain header in an unexpected context.
     ///
     /// For example, sending both `content-length` and `transfer-encoding`.
-    #[cfg(any(feature = "http1", feature = "http2"))]
-    #[cfg(feature = "server")]
     UnexpectedHeader,
     /// User tried to respond with a 1xx (not 101) response code.
-    #[cfg(feature = "http1")]
-    #[cfg(feature = "server")]
     UnsupportedStatusCode,
 
     /// User tried polling for an upgrade that doesn't exist.
     NoUpgrade,
 
     /// User polled for an upgrade, but low-level API is not using upgrades.
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     ManualUpgrade,
 
     /// The dispatch task is gone.
-    #[cfg(all(feature = "client", any(feature = "http1", feature = "http2")))]
     DispatchGone,
 
     /// User aborted in an FFI callback.
@@ -166,7 +127,6 @@ impl Error {
     }
 
     /// Returns true if this was an HTTP parse error caused by a message that was too large.
-    #[cfg(all(feature = "http1", feature = "server"))]
     pub fn is_parse_too_large(&self) -> bool {
         matches!(
             self.inner.kind,
@@ -221,7 +181,6 @@ impl Error {
         self
     }
 
-    #[cfg(any(all(feature = "http1", feature = "server"), feature = "ffi"))]
     pub(super) fn kind(&self) -> &Kind {
         &self.inner.kind
     }
@@ -239,7 +198,6 @@ impl Error {
         None
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http2"))]
     pub(super) fn h2_reason(&self) -> h2::Reason {
         // Find an h2::Reason somewhere in the cause stack, if it exists,
         // otherwise assume an INTERNAL_ERROR.
@@ -252,30 +210,22 @@ impl Error {
         Error::new(Kind::Canceled)
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     pub(super) fn new_incomplete() -> Error {
         Error::new(Kind::IncompleteMessage)
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     pub(super) fn new_too_large() -> Error {
         Error::new(Kind::Parse(Parse::TooLarge))
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     pub(super) fn new_version_h2() -> Error {
         Error::new(Kind::Parse(Parse::VersionH2))
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     pub(super) fn new_unexpected_message() -> Error {
         Error::new(Kind::UnexpectedMessage)
     }
 
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     pub(super) fn new_io(cause: std::io::Error) -> Error {
         Error::new(Kind::Io).with(cause)
     }
@@ -284,18 +234,10 @@ impl Error {
         Error::new(Kind::ChannelClosed)
     }
 
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     pub(super) fn new_body<E: Into<Cause>>(cause: E) -> Error {
         Error::new(Kind::Body).with(cause)
     }
 
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     pub(super) fn new_body_write<E: Into<Cause>>(cause: E) -> Error {
         Error::new(Kind::BodyWrite).with(cause)
     }
@@ -308,19 +250,14 @@ impl Error {
         Error::new(Kind::User(user))
     }
 
-    #[cfg(any(feature = "http1", feature = "http2"))]
-    #[cfg(feature = "server")]
     pub(super) fn new_user_header() -> Error {
         Error::new_user(User::UnexpectedHeader)
     }
 
-    #[cfg(all(feature = "http1", feature = "server"))]
     pub(super) fn new_header_timeout() -> Error {
         Error::new(Kind::HeaderTimeout)
     }
 
-    #[cfg(feature = "http1")]
-    #[cfg(feature = "server")]
     pub(super) fn new_user_unsupported_status_code() -> Error {
         Error::new_user(User::UnsupportedStatusCode)
     }
@@ -329,28 +266,18 @@ impl Error {
         Error::new_user(User::NoUpgrade)
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     pub(super) fn new_user_manual_upgrade() -> Error {
         Error::new_user(User::ManualUpgrade)
     }
 
-    #[cfg(any(
-        all(any(feature = "client", feature = "server"), feature = "http1"),
-        all(feature = "server", feature = "http2")
-    ))]
     pub(super) fn new_user_service<E: Into<Cause>>(cause: E) -> Error {
         Error::new_user(User::Service).with(cause)
     }
 
-    #[cfg(all(
-        any(feature = "client", feature = "server"),
-        any(feature = "http1", feature = "http2")
-    ))]
     pub(super) fn new_user_body<E: Into<Cause>>(cause: E) -> Error {
         Error::new_user(User::Body).with(cause)
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
     pub(super) fn new_shutdown(cause: std::io::Error) -> Error {
         Error::new(Kind::Shutdown).with(cause)
     }
@@ -360,12 +287,10 @@ impl Error {
         Error::new_user(User::AbortedByCallback)
     }
 
-    #[cfg(all(feature = "client", any(feature = "http1", feature = "http2")))]
     pub(super) fn new_user_dispatch_gone() -> Error {
         Error::new(Kind::User(User::DispatchGone))
     }
 
-    #[cfg(all(any(feature = "client", feature = "server"), feature = "http2"))]
     pub(super) fn new_h2(cause: ::h2::Error) -> Error {
         if cause.is_io() {
             Error::new_io(cause.into_io().expect("h2::Error::is_io"))
@@ -377,83 +302,45 @@ impl Error {
     fn description(&self) -> &str {
         match self.inner.kind {
             Kind::Parse(Parse::Method) => "invalid HTTP method parsed",
-            #[cfg(feature = "http1")]
             Kind::Parse(Parse::Version) => "invalid HTTP version parsed",
-            #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
             Kind::Parse(Parse::VersionH2) => "invalid HTTP version parsed (found HTTP2 preface)",
             Kind::Parse(Parse::Uri) => "invalid URI",
-            #[cfg(all(feature = "http1", feature = "server"))]
             Kind::Parse(Parse::UriTooLong) => "URI too long",
-            #[cfg(feature = "http1")]
             Kind::Parse(Parse::Header(Header::Token)) => "invalid HTTP header parsed",
-            #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
             Kind::Parse(Parse::Header(Header::ContentLengthInvalid)) => {
                 "invalid content-length parsed"
             }
-            #[cfg(all(feature = "http1", feature = "server"))]
             Kind::Parse(Parse::Header(Header::TransferEncodingInvalid)) => {
                 "invalid transfer-encoding parsed"
             }
-            #[cfg(all(feature = "http1", any(feature = "client", feature = "server")))]
             Kind::Parse(Parse::Header(Header::TransferEncodingUnexpected)) => {
                 "unexpected transfer-encoding parsed"
             }
-            #[cfg(any(feature = "http1", feature = "http2"))]
             Kind::Parse(Parse::TooLarge) => "message head is too large",
             Kind::Parse(Parse::Status) => "invalid HTTP status-code parsed",
             Kind::Parse(Parse::Internal) => {
                 "internal error inside Hyper and/or its dependencies, please report"
             }
             Kind::IncompleteMessage => "connection closed before message completed",
-            #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
             Kind::UnexpectedMessage => "received unexpected message from connection",
             Kind::ChannelClosed => "channel closed",
             Kind::Canceled => "operation was canceled",
-            #[cfg(all(feature = "http1", feature = "server"))]
             Kind::HeaderTimeout => "read header from client timeout",
-            #[cfg(all(
-                any(feature = "client", feature = "server"),
-                any(feature = "http1", feature = "http2")
-            ))]
             Kind::Body => "error reading a body from connection",
-            #[cfg(all(
-                any(feature = "client", feature = "server"),
-                any(feature = "http1", feature = "http2")
-            ))]
             Kind::BodyWrite => "error writing a body to connection",
-            #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
             Kind::Shutdown => "error shutting down connection",
-            #[cfg(all(any(feature = "client", feature = "server"), feature = "http2"))]
             Kind::Http2 => "http2 error",
-            #[cfg(all(
-                any(feature = "client", feature = "server"),
-                any(feature = "http1", feature = "http2")
-            ))]
             Kind::Io => "connection error",
 
-            #[cfg(all(
-                any(feature = "client", feature = "server"),
-                any(feature = "http1", feature = "http2")
-            ))]
             Kind::User(User::Body) => "error from user's Body stream",
             Kind::User(User::BodyWriteAborted) => "user body write aborted",
-            #[cfg(any(
-                all(any(feature = "client", feature = "server"), feature = "http1"),
-                all(feature = "server", feature = "http2")
-            ))]
             Kind::User(User::Service) => "error from user's Service",
-            #[cfg(any(feature = "http1", feature = "http2"))]
-            #[cfg(feature = "server")]
             Kind::User(User::UnexpectedHeader) => "user sent unexpected header",
-            #[cfg(feature = "http1")]
-            #[cfg(feature = "server")]
             Kind::User(User::UnsupportedStatusCode) => {
                 "response has 1xx status code, not supported by server"
             }
             Kind::User(User::NoUpgrade) => "no upgrade available",
-            #[cfg(all(any(feature = "client", feature = "server"), feature = "http1"))]
             Kind::User(User::ManualUpgrade) => "upgrade expected but low level API in use",
-            #[cfg(all(feature = "client", any(feature = "http1", feature = "http2")))]
             Kind::User(User::DispatchGone) => "dispatch task is gone",
             #[cfg(feature = "ffi")]
             Kind::User(User::AbortedByCallback) => "operation aborted by an application callback",
@@ -494,25 +381,20 @@ impl From<Parse> for Error {
     }
 }
 
-#[cfg(feature = "http1")]
 impl Parse {
-    #[cfg(any(feature = "client", feature = "server"))]
     pub(crate) fn content_length_invalid() -> Self {
         Parse::Header(Header::ContentLengthInvalid)
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn transfer_encoding_invalid() -> Self {
         Parse::Header(Header::TransferEncodingInvalid)
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     pub(crate) fn transfer_encoding_unexpected() -> Self {
         Parse::Header(Header::TransferEncodingUnexpected)
     }
 }
 
-#[cfg(feature = "http1")]
 impl From<httparse::Error> for Parse {
     fn from(err: httparse::Error) -> Parse {
         match err {
@@ -576,21 +458,18 @@ mod tests {
         assert_eq!(mem::size_of::<Error>(), mem::size_of::<usize>());
     }
 
-    #[cfg(feature = "http2")]
     #[test]
     fn h2_reason_unknown() {
         let closed = Error::new_closed();
         assert_eq!(closed.h2_reason(), h2::Reason::INTERNAL_ERROR);
     }
 
-    #[cfg(feature = "http2")]
     #[test]
     fn h2_reason_one_level() {
         let body_err = Error::new_user_body(h2::Error::from(h2::Reason::ENHANCE_YOUR_CALM));
         assert_eq!(body_err.h2_reason(), h2::Reason::ENHANCE_YOUR_CALM);
     }
 
-    #[cfg(feature = "http2")]
     #[test]
     fn h2_reason_nested() {
         let recvd = Error::new_h2(h2::Error::from(h2::Reason::HTTP_1_1_REQUIRED));
