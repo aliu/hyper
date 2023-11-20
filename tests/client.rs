@@ -18,7 +18,7 @@ use hyper::{Method, Request, StatusCode, Uri, Version};
 
 use bytes::Bytes;
 use futures_channel::oneshot;
-use futures_util::future::{self, FutureExt, TryFuture, TryFutureExt};
+use futures_util::future::{FutureExt, TryFuture, TryFutureExt};
 use tokio::net::TcpStream;
 mod support;
 
@@ -357,7 +357,8 @@ macro_rules! test {
 
         let rx = rx.expect("thread panicked");
 
-        rt.block_on(future::try_join(res, rx).map_ok(|r| r.0)).map(move |mut resp| {
+        rt.block_on(async { tokio::try_join!(res, rx) }).map(move |r| {
+            let mut resp = r.0;
             // Always check that HttpConnector has set the "extra" info...
             let extra = resp
                 .extensions_mut()
@@ -1325,6 +1326,7 @@ test! {
 
 mod conn {
     use std::error::Error;
+    use std::future;
     use std::io::{self, Read, Write};
     use std::net::{SocketAddr, TcpListener};
     use std::pin::Pin;
@@ -1334,7 +1336,7 @@ mod conn {
 
     use bytes::{Buf, Bytes};
     use futures_channel::{mpsc, oneshot};
-    use futures_util::future::{self, poll_fn, FutureExt, TryFutureExt};
+    use futures_util::future::{FutureExt, TryFutureExt};
     use http_body_util::{BodyExt, Empty, Full, StreamBody};
     use hyper::rt::Timer;
     use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf};
@@ -1406,7 +1408,7 @@ mod conn {
             assert!(res.body_mut().frame().await.is_none());
         };
 
-        future::join(server, client).await;
+        tokio::join!(server, client);
     }
 
     #[tokio::test]
@@ -1458,7 +1460,7 @@ mod conn {
             assert!(res.body_mut().frame().await.is_none());
         };
 
-        future::join(server, client).await;
+        tokio::join!(server, client);
     }
 
     #[test]
@@ -1498,12 +1500,12 @@ mod conn {
             assert_eq!(res.status(), hyper::StatusCode::OK);
             assert_eq!(res.body().size_hint().exact(), Some(5));
             assert!(!res.body().is_end_stream());
-            poll_fn(move |ctx| Pin::new(res.body_mut()).poll_frame(ctx)).map(Option::unwrap)
+            future::poll_fn(move |ctx| Pin::new(res.body_mut()).poll_frame(ctx)).map(Option::unwrap)
         });
 
         let rx = rx1.expect("thread panicked");
         let rx = rx.then(|_| TokioTimer.sleep(Duration::from_millis(200)));
-        let chunk = rt.block_on(future::join(res, rx).map(|r| r.0)).unwrap();
+        let chunk = rt.block_on(async { tokio::join!(res, rx).0.unwrap() });
         assert_eq!(chunk.data_ref().unwrap().len(), 5);
     }
 
@@ -1605,7 +1607,7 @@ mod conn {
         });
         let rx = rx1.expect("thread panicked");
         let rx = rx.then(|_| TokioTimer.sleep(Duration::from_millis(200)));
-        rt.block_on(future::join(res, rx).map(|r| r.0)).unwrap();
+        rt.block_on(async { tokio::join!(res, rx).0.unwrap() });
     }
 
     #[test]
@@ -1650,7 +1652,7 @@ mod conn {
         });
         let rx = rx1.expect("thread panicked");
         let rx = rx.then(|_| TokioTimer.sleep(Duration::from_millis(200)));
-        rt.block_on(future::join(res, rx).map(|r| r.0)).unwrap();
+        rt.block_on(async { tokio::join!(res, rx).0.unwrap() });
     }
 
     #[test]
@@ -1701,8 +1703,7 @@ mod conn {
 
         let rx = rx1.expect("thread panicked");
         let rx = rx.then(|_| TokioTimer.sleep(Duration::from_millis(200)));
-        rt.block_on(future::join3(res1, res2, rx).map(|r| r.0))
-            .unwrap();
+        rt.block_on(async { tokio::join!(res1, res2, rx).0.unwrap() });
     }
 
     #[test]
@@ -1745,7 +1746,7 @@ mod conn {
         let (mut client, mut conn) = rt.block_on(conn::http1::handshake(io)).unwrap();
 
         {
-            let until_upgrade = poll_fn(|ctx| conn.poll_without_shutdown(ctx));
+            let until_upgrade = future::poll_fn(|ctx| conn.poll_without_shutdown(ctx));
 
             let req = Request::builder()
                 .uri("/a")
@@ -1759,11 +1760,10 @@ mod conn {
 
             let rx = rx1.expect("thread panicked");
             let rx = rx.then(|_| TokioTimer.sleep(Duration::from_millis(200)));
-            rt.block_on(future::join3(until_upgrade, res, rx).map(|r| r.0))
-                .unwrap();
+            rt.block_on(async { tokio::join!(until_upgrade, res, rx).0.unwrap() });
 
             // should not be ready now
-            rt.block_on(poll_fn(|ctx| {
+            rt.block_on(future::poll_fn(|ctx| {
                 assert!(client.poll_ready(ctx).is_pending());
                 Poll::Ready(Ok::<_, ()>(()))
             }))
@@ -1776,7 +1776,7 @@ mod conn {
 
         assert_eq!(buf, b"foobar=ready"[..]);
         assert!(!io.shutdown_called, "upgrade shouldn't shutdown AsyncWrite");
-        rt.block_on(poll_fn(|ctx| {
+        rt.block_on(future::poll_fn(|ctx| {
             let ready = client.poll_ready(ctx);
             assert!(matches!(ready, Poll::Ready(Err(_))));
             ready
@@ -1828,7 +1828,7 @@ mod conn {
         let (mut client, mut conn) = rt.block_on(conn::http1::handshake(io)).unwrap();
 
         {
-            let until_tunneled = poll_fn(|ctx| conn.poll_without_shutdown(ctx));
+            let until_tunneled = future::poll_fn(|ctx| conn.poll_without_shutdown(ctx));
 
             let req = Request::builder()
                 .method("CONNECT")
@@ -1847,11 +1847,10 @@ mod conn {
 
             let rx = rx1.expect("thread panicked");
             let rx = rx.then(|_| TokioTimer.sleep(Duration::from_millis(200)));
-            rt.block_on(future::join3(until_tunneled, res, rx).map(|r| r.0))
-                .unwrap();
+            rt.block_on(async { tokio::join!(until_tunneled, res, rx).0.unwrap() });
 
             // should not be ready now
-            rt.block_on(poll_fn(|ctx| {
+            rt.block_on(future::poll_fn(|ctx| {
                 assert!(client.poll_ready(ctx).is_pending());
                 Poll::Ready(Ok::<_, ()>(()))
             }))
@@ -1865,7 +1864,7 @@ mod conn {
         assert_eq!(buf, b"foobar=ready"[..]);
         assert!(!io.shutdown_called, "tunnel shouldn't shutdown AsyncWrite");
 
-        rt.block_on(poll_fn(|ctx| {
+        rt.block_on(future::poll_fn(|ctx| {
             let ready = client.poll_ready(ctx);
             assert!(matches!(ready, Poll::Ready(Err(_))));
             ready
@@ -2187,7 +2186,7 @@ mod conn {
 
             let (req, mut respond) = h2.accept().await.unwrap().unwrap();
             tokio::spawn(async move {
-                poll_fn(|cx| h2.poll_closed(cx)).await.unwrap();
+                future::poll_fn(|cx| h2.poll_closed(cx)).await.unwrap();
             });
             assert_eq!(req.method(), Method::CONNECT);
 
@@ -2242,7 +2241,7 @@ mod conn {
 
             let (req, mut respond) = h2.accept().await.unwrap().unwrap();
             tokio::spawn(async move {
-                poll_fn(|cx| h2.poll_closed(cx)).await.unwrap();
+                future::poll_fn(|cx| h2.poll_closed(cx)).await.unwrap();
             });
             assert_eq!(req.method(), Method::CONNECT);
 

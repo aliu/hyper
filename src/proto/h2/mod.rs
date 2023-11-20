@@ -3,7 +3,7 @@ use std::future::Future;
 use std::io::{Cursor, IoSlice};
 use std::mem;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
 use bytes::{Buf, Bytes};
 use h2::{Reason, RecvStream, SendStream};

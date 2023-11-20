@@ -1,7 +1,7 @@
 use std::error::Error as StdError;
 use std::fmt;
 use std::io;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use std::usize;
 
 use bytes::Bytes;
@@ -159,7 +159,7 @@ impl Decoder {
 
     #[cfg(test)]
     async fn decode_fut<R: MemRead>(&mut self, body: &mut R) -> Result<Bytes, io::Error> {
-        futures_util::future::poll_fn(move |cx| self.decode(cx, body)).await
+        std::future::poll_fn(move |cx| self.decode(cx, body)).await
     }
 }
 
@@ -484,8 +484,7 @@ mod tests {
             let mut size = 0;
             loop {
                 let result =
-                    futures_util::future::poll_fn(|cx| state.step(cx, rdr, &mut size, &mut None))
-                        .await;
+                    std::future::poll_fn(|cx| state.step(cx, rdr, &mut size, &mut None)).await;
                 let desc = format!("read_size failed for {:?}", s);
                 state = result.expect(desc.as_str());
                 if state == ChunkedState::Body || state == ChunkedState::EndCr {
@@ -501,8 +500,7 @@ mod tests {
             let mut size = 0;
             loop {
                 let result =
-                    futures_util::future::poll_fn(|cx| state.step(cx, rdr, &mut size, &mut None))
-                        .await;
+                    std::future::poll_fn(|cx| state.step(cx, rdr, &mut size, &mut None)).await;
                 state = match result {
                     Ok(s) => s,
                     Err(e) => {

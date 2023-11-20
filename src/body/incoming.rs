@@ -1,7 +1,7 @@
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
 use bytes::Bytes;
 use futures_channel::mpsc;
@@ -315,7 +315,7 @@ impl Sender {
     }
 
     async fn ready(&mut self) -> crate::Result<()> {
-        futures_util::future::poll_fn(|cx| self.poll_ready(cx)).await
+        std::future::poll_fn(|cx| self.poll_ready(cx)).await
     }
 
     /// Send data on data channel when it is ready.

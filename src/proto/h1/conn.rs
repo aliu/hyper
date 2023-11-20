@@ -2,7 +2,7 @@ use std::fmt;
 use std::io;
 use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
 use bytes::{Buf, Bytes};
@@ -1030,7 +1030,7 @@ mod tests {
             .unwrap();
 
         b.iter(|| {
-            rt.block_on(futures_util::future::poll_fn(|cx| {
+            rt.block_on(std::future::poll_fn(|cx| {
                 match conn.poll_read_head(cx) {
                     Poll::Ready(Some(Ok(x))) => {
                         ::test::black_box(&x);

@@ -2,7 +2,7 @@ use std::error::Error as StdError;
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;

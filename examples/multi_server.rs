@@ -4,7 +4,6 @@
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use futures_util::future::join;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -63,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("Listening on http://{} and http://{}", addr1, addr2);
 
-    let _ret = join(srv1, srv2).await;
+    let _ret = tokio::join!(srv1, srv2);
 
     Ok(())
 }

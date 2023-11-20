@@ -6,7 +6,7 @@ use std::future::Future;
 use std::io::{self, Read, Write};
 use std::net::TcpListener as StdTcpListener;
 use std::net::{Shutdown, SocketAddr, TcpStream};
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -31,7 +31,6 @@ use hyper::body::{Body, Incoming as IncomingBody};
 use hyper::server::conn::{http1, http2};
 use hyper::service::{service_fn, Service};
 use hyper::{Method, Request, Response, StatusCode, Uri, Version};
-use tokio::pin;
 
 mod support;
 
@@ -2195,8 +2194,7 @@ async fn graceful_shutdown_before_first_request_no_block() {
     tokio::spawn(async move {
         let socket = listener.accept().await.unwrap().0;
 
-        let future = http1::Builder::new().serve_connection(socket, HelloWorld);
-        pin!(future);
+        let mut future = pin!(http1::Builder::new().serve_connection(socket, HelloWorld));
         future.as_mut().graceful_shutdown();
 
         future.await.unwrap();

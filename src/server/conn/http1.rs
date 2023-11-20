@@ -6,7 +6,7 @@ use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -175,17 +175,14 @@ where
     /// # Error
     ///
     /// This errors if the underlying connection protocol is not HTTP/1.
-    pub fn without_shutdown(self) -> impl Future<Output = crate::Result<Parts<I, S>>>
+    pub async fn without_shutdown(mut self) -> crate::Result<Parts<I, S>>
     where
         S: Unpin,
         S::Future: Unpin,
         B: Unpin,
     {
-        let mut zelf = Some(self);
-        futures_util::future::poll_fn(move |cx| {
-            ready!(zelf.as_mut().unwrap().conn.poll_without_shutdown(cx))?;
-            Poll::Ready(Ok(zelf.take().unwrap().into_parts()))
-        })
+        std::future::poll_fn(|cx| self.conn.poll_without_shutdown(cx)).await?;
+        Ok(self.into_parts())
     }
 
     /// Enable this connection to support higher-level HTTP upgrades.

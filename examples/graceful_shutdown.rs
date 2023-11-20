@@ -2,6 +2,7 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::pin::pin;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -10,7 +11,6 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use tokio::net::TcpListener;
-use tokio::pin;
 
 // An async function that consumes a request, does nothing with it and returns a
 // response.
@@ -55,8 +55,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // to finish
         tokio::task::spawn(async move {
             // Pin the connection object so we can use tokio::select! below.
-            let conn = http1::Builder::new().serve_connection(tcp, service_fn(hello));
-            pin!(conn);
+            let mut conn = pin!(http1::Builder::new().serve_connection(tcp, service_fn(hello)));
 
             // Iterate the timeouts.  Use tokio::select! to wait on the
             // result of polling the connection itself,

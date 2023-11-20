@@ -5,7 +5,7 @@ use std::io::{self, IoSlice};
 use std::marker::Unpin;
 use std::mem::MaybeUninit;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -334,7 +334,7 @@ where
 
     #[cfg(test)]
     fn flush<'a>(&'a mut self) -> impl std::future::Future<Output = io::Result<()>> + 'a {
-        futures_util::future::poll_fn(move |cx| self.poll_flush(cx))
+        std::future::poll_fn(move |cx| self.poll_flush(cx))
     }
 }
 
@@ -674,7 +674,7 @@ mod tests {
         // // First, let's just check that the Mock would normally return an
         // // error on an unexpected write, even if the buffer is empty...
         // let mut mock = Mock::new().build();
-        // futures_util::future::poll_fn(|cx| {
+        // std::future::poll_fn(|cx| {
         //     Pin::new(&mut mock).poll_write_buf(cx, &mut Cursor::new(&[]))
         // })
         // .await
@@ -706,7 +706,7 @@ mod tests {
 
         // We expect a `parse` to be not ready, and so can't await it directly.
         // Rather, this `poll_fn` will wrap the `Poll` result.
-        futures_util::future::poll_fn(|cx| {
+        std::future::poll_fn(|cx| {
             let parse_ctx = ParseContext {
                 cached_headers: &mut None,
                 req_method: &mut None,

@@ -6,7 +6,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
 use http::{Request, Response};
@@ -97,7 +97,7 @@ impl<B> SendRequest<B> {
     ///
     /// If the associated connection is closed, this returns an Error.
     pub async fn ready(&mut self) -> crate::Result<()> {
-        futures_util::future::poll_fn(|cx| self.poll_ready(cx)).await
+        std::future::poll_fn(|cx| self.poll_ready(cx)).await
     }
 
     /// Checks if the connection is currently ready to send a request.

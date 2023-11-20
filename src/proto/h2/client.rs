@@ -3,7 +3,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
     time::Duration,
 };
 

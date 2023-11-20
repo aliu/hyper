@@ -99,9 +99,8 @@ pub use crate::http::HeaderMap;
 
 pub use crate::error::{Error, Result};
 
-#[macro_use]
-mod common;
 pub mod body;
+mod common;
 mod error;
 pub mod ext;
 pub mod rt;
