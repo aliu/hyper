@@ -9,6 +9,7 @@ use http::header::Entry;
 use http::header::ValueIter;
 use http::header::{self, HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode, Version};
+use tracing::{debug, error, trace, trace_span, warn};
 
 use crate::body::DecodedLength;
 use crate::common::date;
@@ -70,7 +71,7 @@ where
         return Ok(None);
     }
 
-    let _entered = trace_span!("parse_headers");
+    let _entered = trace_span!("parse_headers").entered();
 
     if !*ctx.h1_header_read_timeout_running {
         if let Some(h1_header_read_timeout) = ctx.h1_header_read_timeout {
@@ -99,7 +100,7 @@ pub(super) fn encode_headers<T>(
 where
     T: Http1Transaction,
 {
-    let _entered = trace_span!("encode_headers");
+    let _entered = trace_span!("encode_headers").entered();
     T::encode(enc, dst)
 }
 

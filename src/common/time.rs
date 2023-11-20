@@ -2,6 +2,8 @@ use std::time::Duration;
 use std::{fmt, sync::Arc};
 use std::{pin::Pin, time::Instant};
 
+use tracing::warn;
+
 use crate::rt::Sleep;
 use crate::rt::Timer;
 

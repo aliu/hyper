@@ -11,6 +11,7 @@ use http::header::{HeaderName, CONNECTION, TE, TRAILER, TRANSFER_ENCODING, UPGRA
 use http::HeaderMap;
 use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tracing::{debug, trace, warn};
 
 use crate::body::Body;
 use crate::proto::h2::ping::Recorder;

@@ -17,6 +17,7 @@ use h2::SendStream;
 use http::{Method, StatusCode};
 use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tracing::{debug, trace, warn};
 
 use super::ping::{Ponger, Recorder};
 use super::{ping, H2Upgraded, PipeToSendStream, SendBuf};

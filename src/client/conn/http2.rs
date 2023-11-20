@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use http::{Request, Response};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tracing::{debug, trace};
 
 use super::super::dispatch;
 use crate::body::{Body, Incoming as IncomingBody};

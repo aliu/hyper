@@ -26,6 +26,7 @@ use std::task::{self, Poll};
 use std::time::{Duration, Instant};
 
 use h2::{Ping, PingPong};
+use tracing::{debug, trace};
 
 use crate::common::time::Time;
 use crate::rt::Sleep;

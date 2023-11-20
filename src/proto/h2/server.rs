@@ -11,6 +11,7 @@ use h2::{Reason, RecvStream};
 use http::{Method, Request};
 use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tracing::{debug, trace, warn};
 
 use super::{ping, PipeToSendStream, SendBuf};
 use crate::body::{Body, Incoming as IncomingBody};

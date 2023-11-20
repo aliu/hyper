@@ -52,6 +52,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
+use tracing::trace;
 
 use crate::common::io::Rewind;
 
