@@ -10,10 +10,6 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use tokio::net::TcpListener;
 
-#[path = "../benches/support/mod.rs"]
-mod support;
-use support::TokioIo;
-
 // An async function that consumes a request, does nothing with it and returns a
 // response.
 async fn hello(_: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -39,10 +35,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // has work to do. In this case, a connection arrives on the port we are listening on and
         // the task is woken up, at which point the task is then put back on a thread, and is
         // driven forward by the runtime, eventually yielding a TCP stream.
-        let (tcp, _) = listener.accept().await?;
+        let (stream, _) = listener.accept().await?;
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.
-        let io = TokioIo::new(tcp);
 
         // Spin up a new task in Tokio so we can continue to listen for new TCP connection on the
         // current task without waiting for the processing of the HTTP1 connection we just received
@@ -51,7 +46,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Handle the connection from the client using HTTP1 and pass any
             // HTTP requests received on that connection to the `hello` function
             if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(hello))
+                .serve_connection(stream, service_fn(hello))
                 .await
             {
                 println!("Error serving connection: {:?}", err);

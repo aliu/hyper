@@ -10,10 +10,10 @@ use h2::{Reason, RecvStream, SendStream};
 use http::header::{HeaderName, CONNECTION, TE, TRAILER, TRANSFER_ENCODING, UPGRADE};
 use http::HeaderMap;
 use pin_project_lite::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::body::Body;
 use crate::proto::h2::ping::Recorder;
-use crate::rt::{Read, ReadBufCursor, Write};
 
 pub(crate) mod ping;
 
@@ -268,14 +268,14 @@ where
     buf: Bytes,
 }
 
-impl<B> Read for H2Upgraded<B>
+impl<B> AsyncRead for H2Upgraded<B>
 where
     B: Buf,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        mut read_buf: ReadBufCursor<'_>,
+        read_buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
         if self.buf.is_empty() {
             self.buf = loop {
@@ -308,7 +308,7 @@ where
     }
 }
 
-impl<B> Write for H2Upgraded<B>
+impl<B> AsyncWrite for H2Upgraded<B>
 where
     B: Buf,
 {

@@ -12,10 +12,6 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 
-#[path = "../benches/support/mod.rs"]
-mod support;
-use support::TokioIo;
-
 static INDEX: &[u8] = b"<html><body><form action=\"post\" method=\"post\">Name: <input type=\"text\" name=\"name\"><br>Number: <input type=\"text\" name=\"number\"><br><input type=\"submit\"></body></html>";
 static MISSING: &[u8] = b"Missing field";
 static NOTNUMERIC: &[u8] = b"Number field is not numeric";
@@ -127,11 +123,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Listening on http://{}", addr);
     loop {
         let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
 
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(param_example))
+                .serve_connection(stream, service_fn(param_example))
                 .await
             {
                 println!("Error serving connection: {:?}", err);

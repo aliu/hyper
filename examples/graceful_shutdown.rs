@@ -12,10 +12,6 @@ use hyper::{Request, Response};
 use tokio::net::TcpListener;
 use tokio::pin;
 
-#[path = "../benches/support/mod.rs"]
-mod support;
-use support::TokioIo;
-
 // An async function that consumes a request, does nothing with it and returns a
 // response.
 async fn hello(_: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -48,10 +44,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // client<->server communication.
         let (tcp, remote_address) = listener.accept().await?;
 
-        // Use an adapter to access something implementing `tokio::io` traits as if they implement
-        // `hyper::rt` IO traits.
-        let io = TokioIo::new(tcp);
-
         // Print the remote address connecting to our server.
         println!("accepted connection from {:?}", remote_address);
 
@@ -63,7 +55,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // to finish
         tokio::task::spawn(async move {
             // Pin the connection object so we can use tokio::select! below.
-            let conn = http1::Builder::new().serve_connection(io, service_fn(hello));
+            let conn = http1::Builder::new().serve_connection(tcp, service_fn(hello));
             pin!(conn);
 
             // Iterate the timeouts.  Use tokio::select! to wait on the

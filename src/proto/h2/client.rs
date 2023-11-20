@@ -7,7 +7,6 @@ use std::{
     time::Duration,
 };
 
-use crate::rt::{Read, Write};
 use bytes::Bytes;
 use futures_channel::mpsc::{Receiver, Sender};
 use futures_channel::{mpsc, oneshot};
@@ -17,12 +16,12 @@ use h2::client::{Builder, Connection, SendRequest};
 use h2::SendStream;
 use http::{Method, StatusCode};
 use pin_project_lite::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::ping::{Ponger, Recorder};
 use super::{ping, H2Upgraded, PipeToSendStream, SendBuf};
 use crate::body::{Body, Incoming as IncomingBody};
 use crate::client::dispatch::{Callback, SendWhen};
-use crate::common::io::Compat;
 use crate::common::time::Time;
 use crate::ext::Protocol;
 use crate::headers;
@@ -115,14 +114,14 @@ pub(crate) async fn handshake<T, B, E>(
     timer: Time,
 ) -> crate::Result<ClientTask<B, E, T>>
 where
-    T: Read + Write + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + 'static,
     B: Body + 'static,
     B::Data: Send + 'static,
     E: Http2ClientConnExec<B, T> + Unpin,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     let (h2_tx, mut conn) = new_builder(config)
-        .handshake::<_, SendBuf<B::Data>>(Compat::new(io))
+        .handshake::<_, SendBuf<B::Data>>(io)
         .await
         .map_err(crate::Error::new_h2)?;
 
@@ -175,16 +174,16 @@ pin_project! {
         #[pin]
         ponger: Ponger,
         #[pin]
-        conn: Connection<Compat<T>, SendBuf<<B as Body>::Data>>,
+        conn: Connection<T, SendBuf<<B as Body>::Data>>,
     }
 }
 
 impl<T, B> Conn<T, B>
 where
     B: Body,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
-    fn new(ponger: Ponger, conn: Connection<Compat<T>, SendBuf<<B as Body>::Data>>) -> Self {
+    fn new(ponger: Ponger, conn: Connection<T, SendBuf<<B as Body>::Data>>) -> Self {
         Conn { ponger, conn }
     }
 }
@@ -192,7 +191,7 @@ where
 impl<T, B> Future for Conn<T, B>
 where
     B: Body,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     type Output = Result<(), h2::Error>;
 
@@ -218,12 +217,12 @@ pin_project! {
     struct ConnMapErr<T, B>
     where
         B: Body,
-        T: Read,
-        T: Write,
+        T: AsyncRead,
+        T: AsyncWrite,
         T: Unpin,
     {
         #[pin]
-        conn: Either<Conn<T, B>, Connection<Compat<T>, SendBuf<<B as Body>::Data>>>,
+        conn: Either<Conn<T, B>, Connection<T, SendBuf<<B as Body>::Data>>>,
         #[pin]
         is_terminated: bool,
     }
@@ -232,7 +231,7 @@ pin_project! {
 impl<T, B> Future for ConnMapErr<T, B>
 where
     B: Body,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     type Output = Result<(), ()>;
 
@@ -255,7 +254,7 @@ where
 impl<T, B> FusedFuture for ConnMapErr<T, B>
 where
     B: Body,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn is_terminated(&self) -> bool {
         self.is_terminated
@@ -266,8 +265,8 @@ pin_project! {
     pub struct ConnTask<T, B>
     where
         B: Body,
-        T: Read,
-        T: Write,
+        T: AsyncRead,
+        T: AsyncWrite,
         T: Unpin,
     {
         #[pin]
@@ -282,7 +281,7 @@ pin_project! {
 impl<T, B> ConnTask<T, B>
 where
     B: Body,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn new(
         conn: ConnMapErr<T, B>,
@@ -300,7 +299,7 @@ where
 impl<T, B> Future for ConnTask<T, B>
 where
     B: Body,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     type Output = ();
 
@@ -335,8 +334,8 @@ pin_project! {
         B: http_body::Body,
         B: 'static,
         B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-        T: Read,
-        T: Write,
+        T: AsyncRead,
+        T: AsyncWrite,
         T: Unpin,
     {
         Pipe {
@@ -358,7 +357,7 @@ impl<B, T> Future for H2ClientFuture<B, T>
 where
     B: http_body::Body + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     type Output = ();
 
@@ -407,7 +406,7 @@ where
     B: Body + 'static,
     E: Http2ClientConnExec<B, T> + Unpin,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     pub(crate) fn is_extended_connect_protocol_enabled(&self) -> bool {
         self.h2_tx.is_extended_connect_protocol_enabled()
@@ -459,7 +458,7 @@ where
     B::Data: Send,
     E: Http2ClientConnExec<B, T> + Unpin,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_pipe(&mut self, f: FutCtx<B>, cx: &mut Context<'_>) {
         let ping = self.ping.clone();
@@ -594,7 +593,7 @@ where
     B::Data: Send,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     E: Http2ClientConnExec<B, T> + 'static + Send + Sync + Unpin,
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     type Output = crate::Result<Dispatched>;
 

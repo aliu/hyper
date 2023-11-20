@@ -10,11 +10,11 @@ use h2::server::{Connection, Handshake, SendResponse};
 use h2::{Reason, RecvStream};
 use http::{Method, Request};
 use pin_project_lite::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::{ping, PipeToSendStream, SendBuf};
 use crate::body::{Body, Incoming as IncomingBody};
 use crate::common::date;
-use crate::common::io::Compat;
 use crate::common::time::Time;
 use crate::ext::Protocol;
 use crate::headers;
@@ -22,7 +22,6 @@ use crate::proto::h2::ping::Recorder;
 use crate::proto::h2::{H2Upgraded, UpgradedSendStream};
 use crate::proto::Dispatched;
 use crate::rt::bounds::Http2ServerConnExec;
-use crate::rt::{Read, Write};
 use crate::service::HttpService;
 
 use crate::upgrade::{OnUpgrade, Pending, Upgraded};
@@ -91,7 +90,7 @@ where
 {
     Handshaking {
         ping_config: ping::Config,
-        hs: Handshake<Compat<T>, SendBuf<B::Data>>,
+        hs: Handshake<T, SendBuf<B::Data>>,
     },
     Serving(Serving<T, B>),
     Closed,
@@ -102,13 +101,13 @@ where
     B: Body,
 {
     ping: Option<(ping::Recorder, ping::Ponger)>,
-    conn: Connection<Compat<T>, SendBuf<B::Data>>,
+    conn: Connection<T, SendBuf<B::Data>>,
     closing: Option<crate::Error>,
 }
 
 impl<T, S, B, E> Server<T, S, B, E>
 where
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
     S: HttpService<IncomingBody, ResBody = B>,
     S::Error: Into<Box<dyn StdError + Send + Sync>>,
     B: Body + 'static,
@@ -134,7 +133,7 @@ where
         if config.enable_connect_protocol {
             builder.enable_connect_protocol();
         }
-        let handshake = builder.handshake(Compat::new(io));
+        let handshake = builder.handshake(io);
 
         let bdp = if config.adaptive_window {
             Some(config.initial_stream_window_size)
@@ -184,7 +183,7 @@ where
 
 impl<T, S, B, E> Future for Server<T, S, B, E>
 where
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
     S: HttpService<IncomingBody, ResBody = B>,
     S::Error: Into<Box<dyn StdError + Send + Sync>>,
     B: Body + 'static,
@@ -230,7 +229,7 @@ where
 
 impl<T, B> Serving<T, B>
 where
-    T: Read + Write + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin,
     B: Body + 'static,
 {
     fn poll_server<S, E>(

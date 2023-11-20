@@ -6,10 +6,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::rt::{Read, Write};
 use bytes::Bytes;
 use http::{Request, Response};
 use httparse::ParserConfig;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::super::dispatch;
 use crate::body::{Body, Incoming as IncomingBody};
@@ -50,7 +50,7 @@ pub struct Parts<T> {
 #[must_use = "futures do nothing unless polled"]
 pub struct Connection<T, B>
 where
-    T: Read + Write + 'static,
+    T: AsyncRead + AsyncWrite + 'static,
     B: Body + 'static,
 {
     inner: Dispatcher<T, B>,
@@ -58,7 +58,7 @@ where
 
 impl<T, B> Connection<T, B>
 where
-    T: Read + Write + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + 'static,
     B: Body + 'static,
     B::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
@@ -115,7 +115,7 @@ pub struct Builder {
 /// See [`client::conn`](crate::client::conn) for more.
 pub async fn handshake<T, B>(io: T) -> crate::Result<(SendRequest<B>, Connection<T, B>)>
 where
-    T: Read + Write + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + 'static,
     B: Body + 'static,
     B::Data: Send,
     B::Error: Into<Box<dyn StdError + Send + Sync>>,
@@ -238,7 +238,7 @@ impl<B> fmt::Debug for SendRequest<B> {
 
 impl<T, B> Connection<T, B>
 where
-    T: Read + Write + Unpin + Send + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     B: Body + 'static,
     B::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
@@ -252,7 +252,7 @@ where
 
 impl<T, B> fmt::Debug for Connection<T, B>
 where
-    T: Read + Write + fmt::Debug + 'static,
+    T: AsyncRead + AsyncWrite + fmt::Debug + 'static,
     B: Body + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -262,7 +262,7 @@ where
 
 impl<T, B> Future for Connection<T, B>
 where
-    T: Read + Write + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + 'static,
     B: Body + 'static,
     B::Data: Send,
     B::Error: Into<Box<dyn StdError + Send + Sync>>,
@@ -481,7 +481,7 @@ impl Builder {
         io: T,
     ) -> impl Future<Output = crate::Result<(SendRequest<B>, Connection<T, B>)>>
     where
-        T: Read + Write + Unpin + 'static,
+        T: AsyncRead + AsyncWrite + Unpin + 'static,
         B: Body + 'static,
         B::Data: Send,
         B::Error: Into<Box<dyn StdError + Send + Sync>>,
@@ -542,7 +542,7 @@ mod upgrades {
     #[allow(missing_debug_implementations)]
     pub struct UpgradeableConnection<T, B>
     where
-        T: Read + Write + Unpin + Send + 'static,
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
         B: Body + 'static,
         B::Error: Into<Box<dyn StdError + Send + Sync>>,
     {
@@ -551,7 +551,7 @@ mod upgrades {
 
     impl<I, B> Future for UpgradeableConnection<I, B>
     where
-        I: Read + Write + Unpin + Send + 'static,
+        I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
         B: Body + 'static,
         B::Data: Send,
         B::Error: Into<Box<dyn StdError + Send + Sync>>,

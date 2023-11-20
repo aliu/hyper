@@ -1,4 +1,3 @@
-#![cfg(not(miri))]
 #![deny(warnings)]
 #[macro_use]
 mod support;

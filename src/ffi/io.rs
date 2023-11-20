@@ -2,8 +2,8 @@ use std::ffi::c_void;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::rt::{Read, Write};
 use libc::size_t;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::task::hyper_context;
 
@@ -123,13 +123,13 @@ extern "C" fn write_noop(
     0
 }
 
-impl Read for hyper_io {
+impl AsyncRead for hyper_io {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        mut buf: crate::rt::ReadBufCursor<'_>,
+        buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let buf_ptr = unsafe { buf.as_mut() }.as_mut_ptr() as *mut u8;
+        let buf_ptr = unsafe { buf.unfilled_mut() }.as_mut_ptr() as *mut u8;
         let buf_len = buf.remaining();
 
         match (self.read)(self.userdata, hyper_context::wrap(cx), buf_ptr, buf_len) {
@@ -141,14 +141,15 @@ impl Read for hyper_io {
             ok => {
                 // We have to trust that the user's read callback actually
                 // filled in that many bytes... :(
-                unsafe { buf.advance(ok) };
+                unsafe { buf.assume_init(ok) };
+                buf.advance(ok);
                 Poll::Ready(Ok(()))
             }
         }
     }
 }
 
-impl Write for hyper_io {
+impl AsyncWrite for hyper_io {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

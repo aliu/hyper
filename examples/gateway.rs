@@ -4,10 +4,6 @@ use hyper::{server::conn::http1, service::service_fn};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 
-#[path = "../benches/support/mod.rs"]
-mod support;
-use support::TokioIo;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
@@ -24,7 +20,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
 
         // This is the `Service` that will handle the connection.
         // `service_fn` is a helper to convert a function that
@@ -47,9 +42,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             async move {
                 let client_stream = TcpStream::connect(addr).await.unwrap();
-                let io = TokioIo::new(client_stream);
 
-                let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+                let (mut sender, conn) =
+                    hyper::client::conn::http1::handshake(client_stream).await?;
                 tokio::task::spawn(async move {
                     if let Err(err) = conn.await {
                         println!("Connection failed: {:?}", err);
@@ -61,7 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+            if let Err(err) = http1::Builder::new()
+                .serve_connection(stream, service)
+                .await
+            {
                 println!("Failed to serve the connection: {:?}", err);
             }
         });

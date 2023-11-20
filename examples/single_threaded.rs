@@ -15,7 +15,7 @@ use hyper::server::conn::http2;
 use std::cell::Cell;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use tokio::io::{self, AsyncWriteExt};
+use tokio::io::{self, AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use hyper::body::{Body as HttpBody, Bytes, Frame};
@@ -27,10 +27,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::thread;
 use tokio::net::TcpStream;
-
-#[path = "../benches/support/mod.rs"]
-mod support;
-use support::TokioIo;
 
 struct Body {
     // Our Body type is !Send and !Sync:
@@ -138,8 +134,6 @@ async fn http1_server() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (stream, _) = listener.accept().await?;
 
-        let io = IOTypeNotSend::new(TokioIo::new(stream));
-
         let cnt = counter.clone();
 
         let service = service_fn(move |_| {
@@ -151,7 +145,7 @@ async fn http1_server() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::task::spawn_local(async move {
             if let Err(err) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, service)
+                .serve_connection(IOTypeNotSend::new(stream), service)
                 .await
             {
                 println!("Error serving connection: {:?}", err);
@@ -166,9 +160,8 @@ async fn http1_client(url: hyper::Uri) -> Result<(), Box<dyn std::error::Error>>
     let addr = format!("{}:{}", host, port);
     let stream = TcpStream::connect(addr).await?;
 
-    let io = IOTypeNotSend::new(TokioIo::new(stream));
-
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    let (mut sender, conn) =
+        hyper::client::conn::http1::handshake(IOTypeNotSend::new(stream)).await?;
 
     tokio::task::spawn_local(async move {
         if let Err(err) = conn.await {
@@ -233,8 +226,6 @@ async fn http2_server() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let io = IOTypeNotSend::new(TokioIo::new(stream));
-
         // For each connection, clone the counter to use in our service...
         let cnt = counter.clone();
 
@@ -247,7 +238,7 @@ async fn http2_server() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::task::spawn_local(async move {
             if let Err(err) = http2::Builder::new(LocalExec)
-                .serve_connection(io, service)
+                .serve_connection(IOTypeNotSend::new(stream), service)
                 .await
             {
                 let mut stdout = io::stdout();
@@ -267,9 +258,8 @@ async fn http2_client(url: hyper::Uri) -> Result<(), Box<dyn std::error::Error>>
     let addr = format!("{}:{}", host, port);
     let stream = TcpStream::connect(addr).await?;
 
-    let stream = IOTypeNotSend::new(TokioIo::new(stream));
-
-    let (mut sender, conn) = hyper::client::conn::http2::handshake(LocalExec, stream).await?;
+    let (mut sender, conn) =
+        hyper::client::conn::http2::handshake(LocalExec, IOTypeNotSend::new(stream)).await?;
 
     tokio::task::spawn_local(async move {
         if let Err(err) = conn.await {
@@ -336,11 +326,11 @@ where
 
 struct IOTypeNotSend {
     _marker: PhantomData<*const ()>,
-    stream: TokioIo<TcpStream>,
+    stream: TcpStream,
 }
 
 impl IOTypeNotSend {
-    fn new(stream: TokioIo<TcpStream>) -> Self {
+    fn new(stream: TcpStream) -> Self {
         Self {
             _marker: PhantomData,
             stream,
@@ -348,7 +338,7 @@ impl IOTypeNotSend {
     }
 }
 
-impl hyper::rt::Write for IOTypeNotSend {
+impl AsyncWrite for IOTypeNotSend {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -372,11 +362,11 @@ impl hyper::rt::Write for IOTypeNotSend {
     }
 }
 
-impl hyper::rt::Read for IOTypeNotSend {
+impl AsyncRead for IOTypeNotSend {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: hyper::rt::ReadBufCursor<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.stream).poll_read(cx, buf)
     }

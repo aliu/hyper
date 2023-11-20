@@ -6,9 +6,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::rt::{Read, Write};
 use bytes::{Buf, Bytes};
 use http::Request;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::{Http1Transaction, Wants};
 use crate::body::{Body, DecodedLength, Incoming as IncomingBody};
@@ -65,7 +65,7 @@ where
             RecvItem = MessageHead<T::Incoming>,
         > + Unpin,
     D::PollError: Into<Box<dyn StdError + Send + Sync>>,
-    I: Read + Write + Unpin,
+    I: AsyncRead + AsyncWrite + Unpin,
     T: Http1Transaction + Unpin,
     Bs: Body + 'static,
     Bs::Error: Into<Box<dyn StdError + Send + Sync>>,
@@ -97,7 +97,7 @@ where
     }
 
     /// Run this dispatcher until HTTP says this connection is done,
-    /// but don't call `Write::shutdown` on the underlying IO.
+    /// but don't call `AsyncWrite::shutdown` on the underlying IO.
     ///
     /// This is useful for old-style HTTP upgrades, but ignores
     /// newer-style upgrade API.
@@ -423,7 +423,7 @@ where
             RecvItem = MessageHead<T::Incoming>,
         > + Unpin,
     D::PollError: Into<Box<dyn StdError + Send + Sync>>,
-    I: Read + Write + Unpin,
+    I: AsyncRead + AsyncWrite + Unpin,
     T: Http1Transaction + Unpin,
     Bs: Body + 'static,
     Bs::Error: Into<Box<dyn StdError + Send + Sync>>,
@@ -665,7 +665,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::io::Compat;
     use crate::proto::h1::ClientTransaction;
     use std::time::Duration;
 
@@ -679,7 +678,7 @@ mod tests {
             // Block at 0 for now, but we will release this response before
             // the request is ready to write later...
             let (mut tx, rx) = crate::client::dispatch::channel();
-            let conn = Conn::<_, bytes::Bytes, ClientTransaction>::new(Compat::new(io));
+            let conn = Conn::<_, bytes::Bytes, ClientTransaction>::new(io);
             let mut dispatcher = Dispatcher::new(Client::new(rx), conn);
 
             // First poll is needed to allow tx to send...
@@ -716,7 +715,7 @@ mod tests {
             .build_with_handle();
 
         let (mut tx, rx) = crate::client::dispatch::channel();
-        let mut conn = Conn::<_, bytes::Bytes, ClientTransaction>::new(Compat::new(io));
+        let mut conn = Conn::<_, bytes::Bytes, ClientTransaction>::new(io);
         conn.set_write_strategy_queue();
 
         let dispatcher = Dispatcher::new(Client::new(rx), conn);
@@ -747,7 +746,7 @@ mod tests {
             .build();
 
         let (mut tx, rx) = crate::client::dispatch::channel();
-        let conn = Conn::<_, bytes::Bytes, ClientTransaction>::new(Compat::new(io));
+        let conn = Conn::<_, bytes::Bytes, ClientTransaction>::new(io);
         let mut dispatcher = tokio_test::task::spawn(Dispatcher::new(Client::new(rx), conn));
 
         // First poll is needed to allow tx to send...

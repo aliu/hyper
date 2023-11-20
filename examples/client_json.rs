@@ -7,10 +7,6 @@ use hyper::{body::Buf, Request};
 use serde::Deserialize;
 use tokio::net::TcpStream;
 
-#[path = "../benches/support/mod.rs"]
-mod support;
-use support::TokioIo;
-
 // A simple type alias so as to DRY.
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -33,9 +29,8 @@ async fn fetch_json(url: hyper::Uri) -> Result<Vec<User>> {
     let addr = format!("{}:{}", host, port);
 
     let stream = TcpStream::connect(addr).await?;
-    let io = TokioIo::new(stream);
 
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(stream).await?;
     tokio::task::spawn(async move {
         if let Err(err) = conn.await {
             println!("Connection failed: {:?}", err);

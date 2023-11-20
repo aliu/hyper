@@ -18,11 +18,8 @@
 //! use http::{Request, StatusCode};
 //! use http_body_util::Empty;
 //! use hyper::client::conn;
-//! # use hyper::rt::{Read, Write};
-//! # async fn run<I>(tcp: I) -> Result<(), Box<dyn std::error::Error>>
-//! # where
-//! #     I: Read + Write + Unpin + Send + 'static,
-//! # {
+//! # use tokio::net::TcpStream;
+//! # async fn run(tcp: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
 //! let (mut request_sender, connection) = conn::http1::handshake(tcp).await?;
 //!
 //! // spawn a task to poll the connection and drive the HTTP state
