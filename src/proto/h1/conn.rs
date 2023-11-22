@@ -10,15 +10,14 @@ use http::header::{HeaderValue, CONNECTION};
 use http::{HeaderMap, Method, Version};
 use httparse::ParserConfig;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::Sleep;
 use tracing::{debug, error, trace};
 
 use super::io::Buffered;
 use super::{Decoder, Encode, EncodedBuf, Encoder, Http1Transaction, ParseContext, Wants};
 use crate::body::DecodedLength;
-use crate::common::time::Time;
 use crate::headers::connection_keep_alive;
 use crate::proto::{BodyLength, MessageHead};
-use crate::rt::Sleep;
 
 const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
@@ -54,7 +53,6 @@ where
                 h1_header_read_timeout: None,
                 h1_header_read_timeout_fut: None,
                 h1_header_read_timeout_running: false,
-                timer: Time::Empty,
                 preserve_header_case: false,
                 #[cfg(feature = "ffi")]
                 preserve_header_order: false,
@@ -72,10 +70,6 @@ where
             },
             _marker: PhantomData,
         }
-    }
-
-    pub(crate) fn set_timer(&mut self, timer: Time) {
-        self.state.timer = timer;
     }
 
     pub(crate) fn set_flush_pipeline(&mut self, enabled: bool) {
@@ -194,7 +188,6 @@ where
                 h1_header_read_timeout: self.state.h1_header_read_timeout,
                 h1_header_read_timeout_fut: &mut self.state.h1_header_read_timeout_fut,
                 h1_header_read_timeout_running: &mut self.state.h1_header_read_timeout_running,
-                timer: self.state.timer.clone(),
                 preserve_header_case: self.state.preserve_header_case,
                 #[cfg(feature = "ffi")]
                 preserve_header_order: self.state.preserve_header_order,
@@ -794,9 +787,8 @@ struct State {
     method: Option<Method>,
     h1_parser_config: ParserConfig,
     h1_header_read_timeout: Option<Duration>,
-    h1_header_read_timeout_fut: Option<Pin<Box<dyn Sleep>>>,
+    h1_header_read_timeout_fut: Option<Pin<Box<Sleep>>>,
     h1_header_read_timeout_running: bool,
-    timer: Time,
     preserve_header_case: bool,
     #[cfg(feature = "ffi")]
     preserve_header_order: bool,

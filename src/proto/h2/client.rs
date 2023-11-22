@@ -23,7 +23,6 @@ use super::ping::{Ponger, Recorder};
 use super::{ping, H2Upgraded, PipeToSendStream, SendBuf};
 use crate::body::{Body, Incoming as IncomingBody};
 use crate::client::dispatch::{Callback, SendWhen};
-use crate::common::time::Time;
 use crate::ext::Protocol;
 use crate::headers;
 use crate::proto::h2::UpgradedSendStream;
@@ -112,7 +111,6 @@ pub(crate) async fn handshake<T, B, E>(
     req_rx: ClientRx<B>,
     config: &Config,
     mut exec: E,
-    timer: Time,
 ) -> crate::Result<ClientTask<B, E, T>>
 where
     T: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -139,7 +137,7 @@ where
 
     let (conn, ping) = if ping_config.is_enabled() {
         let pp = conn.ping_pong().expect("conn.ping_pong");
-        let (recorder, ponger) = ping::channel(pp, ping_config, timer);
+        let (recorder, ponger) = ping::channel(pp, ping_config);
 
         let conn: Conn<_, B> = Conn::new(ponger, conn);
         (Either::Left(conn), recorder)

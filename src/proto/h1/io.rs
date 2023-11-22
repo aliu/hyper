@@ -184,7 +184,6 @@ where
                     h1_header_read_timeout: parse_ctx.h1_header_read_timeout,
                     h1_header_read_timeout_fut: parse_ctx.h1_header_read_timeout_fut,
                     h1_header_read_timeout_running: parse_ctx.h1_header_read_timeout_running,
-                    timer: parse_ctx.timer.clone(),
                     preserve_header_case: parse_ctx.preserve_header_case,
                     #[cfg(feature = "ffi")]
                     preserve_header_order: parse_ctx.preserve_header_order,
@@ -647,8 +646,6 @@ enum WriteStrategy {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::time::Time;
-
     use super::*;
     use std::time::Duration;
 
@@ -714,7 +711,6 @@ mod tests {
                 h1_header_read_timeout: None,
                 h1_header_read_timeout_fut: &mut None,
                 h1_header_read_timeout_running: &mut false,
-                timer: Time::Empty,
                 preserve_header_case: false,
                 #[cfg(feature = "ffi")]
                 preserve_header_order: false,

@@ -4,12 +4,8 @@
 //! runtime types. These include:
 //!
 //! - Executors
-//! - Timers
 
 pub mod bounds;
-mod timer;
-
-pub use self::timer::{Sleep, Timer};
 
 /// An executor of futures.
 ///

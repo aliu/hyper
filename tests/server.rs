@@ -21,8 +21,7 @@ use h2::client::SendRequest;
 use h2::{RecvStream, SendStream};
 use http::header::{HeaderName, HeaderValue};
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
-use hyper::rt::Timer;
-use support::{TokioExecutor, TokioTimer};
+use support::TokioExecutor;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener as TkTcpListener, TcpListener, TcpStream as TkTcpStream};
@@ -1016,7 +1015,7 @@ async fn expect_continue_waits_for_body_poll() {
                 assert_eq!(req.headers()["expect"], "100-continue");
                 // But! We're never going to poll the body!
                 drop(req);
-                TokioTimer.sleep(Duration::from_millis(50)).map(move |_| {
+                tokio::time::sleep(Duration::from_millis(50)).map(move |_| {
                     Response::builder()
                         .status(StatusCode::BAD_REQUEST)
                         .body(Empty::<Bytes>::new())
@@ -1305,8 +1304,7 @@ async fn http1_allow_half_close() {
         .serve_connection(
             socket,
             service_fn(|_| {
-                TokioTimer
-                    .sleep(Duration::from_millis(500))
+                tokio::time::sleep(Duration::from_millis(500))
                     .map(|_| Ok::<_, hyper::Error>(Response::new(Empty::<Bytes>::new())))
             }),
         )
@@ -1331,7 +1329,7 @@ async fn disconnect_after_reading_request_before_responding() {
         .serve_connection(
             socket,
             service_fn(|_| {
-                TokioTimer.sleep(Duration::from_secs(2)).map(
+                tokio::time::sleep(Duration::from_secs(2)).map(
                     |_| -> Result<Response<IncomingBody>, hyper::Error> {
                         panic!("response future should have been dropped");
                     },
@@ -1422,7 +1420,6 @@ async fn header_read_timeout_slow_writes() {
 
     let (socket, _) = listener.accept().await.unwrap();
     let conn = http1::Builder::new()
-        .timer(TokioTimer)
         .header_read_timeout(Duration::from_secs(5))
         .serve_connection(
             socket,
@@ -1497,7 +1494,6 @@ async fn header_read_timeout_slow_writes_multiple_requests() {
 
     let (socket, _) = listener.accept().await.unwrap();
     let conn = http1::Builder::new()
-        .timer(TokioTimer)
         .header_read_timeout(Duration::from_secs(5))
         .serve_connection(
             socket,
@@ -2435,7 +2431,6 @@ async fn http2_keep_alive_detects_unresponsive_client() {
     let (socket, _) = listener.accept().await.expect("accept");
 
     let err = http2::Builder::new(TokioExecutor)
-        .timer(TokioTimer)
         .keep_alive_interval(Duration::from_secs(1))
         .keep_alive_timeout(Duration::from_secs(1))
         .serve_connection(socket, unreachable_service())
@@ -2453,7 +2448,6 @@ async fn http2_keep_alive_with_responsive_client() {
         let (socket, _) = listener.accept().await.expect("accept");
 
         http2::Builder::new(TokioExecutor)
-            .timer(TokioTimer)
             .keep_alive_interval(Duration::from_secs(1))
             .keep_alive_timeout(Duration::from_secs(1))
             .serve_connection(socket, HelloWorld)
@@ -2471,7 +2465,7 @@ async fn http2_keep_alive_with_responsive_client() {
         conn.await.expect("client conn");
     });
 
-    TokioTimer.sleep(Duration::from_secs(4)).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
 
     let req = http::Request::new(Empty::<Bytes>::new());
     client.send_request(req).await.expect("client.send_request");
@@ -2516,7 +2510,6 @@ async fn http2_keep_alive_count_server_pings() {
         let (socket, _) = listener.accept().await.expect("accept");
 
         http2::Builder::new(TokioExecutor)
-            .timer(TokioTimer)
             .keep_alive_interval(Duration::from_secs(1))
             .keep_alive_timeout(Duration::from_secs(1))
             .serve_connection(socket, unreachable_service())

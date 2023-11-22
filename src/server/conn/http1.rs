@@ -5,7 +5,6 @@ use std::fmt;
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
@@ -15,10 +14,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::body::{Body, Incoming as IncomingBody};
 use crate::proto;
 use crate::service::HttpService;
-use crate::{
-    common::time::{Dur, Time},
-    rt::Timer,
-};
 
 type Http1Dispatcher<T, B, S> = proto::h1::Dispatcher<
     proto::h1::dispatch::Server<S, IncomingBody>,
@@ -68,12 +63,11 @@ pin_project_lite::pin_project! {
 /// to bind the built connection to a service.
 #[derive(Clone, Debug)]
 pub struct Builder {
-    timer: Time,
     h1_half_close: bool,
     h1_keep_alive: bool,
     h1_title_case_headers: bool,
     h1_preserve_header_case: bool,
-    h1_header_read_timeout: Dur,
+    h1_header_read_timeout: Option<Duration>,
     h1_writev: Option<bool>,
     max_buf_size: Option<usize>,
     pipeline_flush: bool,
@@ -232,12 +226,11 @@ impl Builder {
     /// Create a new connection builder.
     pub fn new() -> Self {
         Self {
-            timer: Time::Empty,
             h1_half_close: false,
             h1_keep_alive: true,
             h1_title_case_headers: false,
             h1_preserve_header_case: false,
-            h1_header_read_timeout: Dur::Default(Some(Duration::from_secs(30))),
+            h1_header_read_timeout: Some(Duration::from_secs(30)),
             h1_writev: None,
             max_buf_size: None,
             pipeline_flush: false,
@@ -296,7 +289,7 @@ impl Builder {
     ///
     /// Default is 30 seconds.
     pub fn header_read_timeout(&mut self, read_timeout: impl Into<Option<Duration>>) -> &mut Self {
-        self.h1_header_read_timeout = Dur::Configured(read_timeout.into());
+        self.h1_header_read_timeout = read_timeout.into();
         self
     }
 
@@ -343,24 +336,10 @@ impl Builder {
         self
     }
 
-    /// Set the timer used in background tasks.
-    pub fn timer<M>(&mut self, timer: M) -> &mut Self
-    where
-        M: Timer + Send + Sync + 'static,
-    {
-        self.timer = Time::Timer(Arc::new(timer));
-        self
-    }
-
     /// Bind a connection together with a [`Service`](crate::service::Service).
     ///
     /// This returns a Future that must be polled in order for HTTP to be
     /// driven on the connection.
-    ///
-    /// # Panics
-    ///
-    /// If a timeout option has been configured, but a `timer` has not been
-    /// provided, calling `serve_connection` will panic.
     ///
     /// # Example
     ///
@@ -394,7 +373,6 @@ impl Builder {
         I: AsyncRead + AsyncWrite + Unpin,
     {
         let mut conn = proto::Conn::new(io);
-        conn.set_timer(self.timer.clone());
         if !self.h1_keep_alive {
             conn.disable_keep_alive();
         }
@@ -407,11 +385,8 @@ impl Builder {
         if self.h1_preserve_header_case {
             conn.set_preserve_header_case();
         }
-        if let Some(dur) = self
-            .timer
-            .check(self.h1_header_read_timeout, "header_read_timeout")
-        {
-            conn.set_http1_header_read_timeout(dur);
+        if let Some(header_read_timeout) = self.h1_header_read_timeout {
+            conn.set_http1_header_read_timeout(header_read_timeout);
         };
         if let Some(writev) = self.h1_writev {
             if writev {

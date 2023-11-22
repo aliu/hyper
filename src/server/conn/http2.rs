@@ -5,7 +5,6 @@ use std::fmt;
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
@@ -16,7 +15,6 @@ use crate::body::{Body, Incoming as IncomingBody};
 use crate::proto;
 use crate::rt::bounds::Http2ServerConnExec;
 use crate::service::HttpService;
-use crate::{common::time::Time, rt::Timer};
 
 pin_project! {
     /// A [`Future`](core::future::Future) representing an HTTP/2 connection, bound to a
@@ -41,7 +39,6 @@ pin_project! {
 #[derive(Clone, Debug)]
 pub struct Builder<E> {
     exec: E,
-    timer: Time,
     h2_builder: proto::h2::server::Config,
 }
 
@@ -115,7 +112,6 @@ impl<E> Builder<E> {
     pub fn new(exec: E) -> Self {
         Self {
             exec,
-            timer: Time::Empty,
             h2_builder: Default::default(),
         }
     }
@@ -242,15 +238,6 @@ impl<E> Builder<E> {
         self
     }
 
-    /// Set the timer used in background tasks.
-    pub fn timer<M>(&mut self, timer: M) -> &mut Self
-    where
-        M: Timer + Send + Sync + 'static,
-    {
-        self.timer = Time::Timer(Arc::new(timer));
-        self
-    }
-
     /// Bind a connection together with a [`Service`](crate::service::Service).
     ///
     /// This returns a Future that must be polled in order for HTTP to be
@@ -264,13 +251,7 @@ impl<E> Builder<E> {
         I: AsyncRead + AsyncWrite + Unpin,
         E: Http2ServerConnExec<S::Future, Bd>,
     {
-        let proto = proto::h2::Server::new(
-            io,
-            service,
-            &self.h2_builder,
-            self.exec.clone(),
-            self.timer.clone(),
-        );
+        let proto = proto::h2::Server::new(io, service, &self.h2_builder, self.exec.clone());
         Connection { conn: proto }
     }
 }

@@ -22,7 +22,7 @@ pub use std::net::SocketAddr;
 
 mod tokiort;
 #[allow(unused)]
-pub use tokiort::{TokioExecutor, TokioTimer};
+pub use tokiort::TokioExecutor;
 
 #[allow(unused_macros)]
 macro_rules! t {

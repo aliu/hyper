@@ -5,7 +5,6 @@ use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
@@ -15,10 +14,8 @@ use tracing::{debug, trace};
 
 use super::super::dispatch;
 use crate::body::{Body, Incoming as IncomingBody};
-use crate::common::time::Time;
 use crate::proto;
 use crate::rt::bounds::Http2ClientConnExec;
-use crate::rt::Timer;
 
 /// The sender side of an established connection.
 pub struct SendRequest<B> {
@@ -57,7 +54,6 @@ where
 #[derive(Clone, Debug)]
 pub struct Builder<Ex> {
     pub(super) exec: Ex,
-    pub(super) timer: Time,
     h2_builder: proto::h2::client::Config,
 }
 
@@ -261,18 +257,8 @@ where
     pub fn new(exec: Ex) -> Builder<Ex> {
         Builder {
             exec,
-            timer: Time::Empty,
             h2_builder: Default::default(),
         }
-    }
-
-    /// Provide a timer to execute background HTTP2 tasks.
-    pub fn timer<M>(&mut self, timer: M) -> &mut Builder<Ex>
-    where
-        M: Timer + Send + Sync + 'static,
-    {
-        self.timer = Time::Timer(Arc::new(timer));
-        self
     }
 
     /// Sets the [`SETTINGS_INITIAL_WINDOW_SIZE`][spec] option for HTTP2
@@ -415,8 +401,7 @@ where
             trace!("client handshake HTTP/1");
 
             let (tx, rx) = dispatch::channel();
-            let h2 = proto::h2::client::handshake(io, rx, &opts.h2_builder, opts.exec, opts.timer)
-                .await?;
+            let h2 = proto::h2::client::handshake(io, rx, &opts.h2_builder, opts.exec).await?;
             Ok((
                 SendRequest {
                     dispatch: tx.unbound(),
