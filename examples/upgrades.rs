@@ -32,7 +32,7 @@ async fn server_upgraded_io(mut upgraded: Upgraded) -> Result<()> {
 
     // and now write back the server 'foobar' protocol's
     // response...
-    upgraded.write_all(b"barr=foo").await?;
+    upgraded.write_all(b"bar=foo").await?;
     println!("server[foobar] sent");
     Ok(())
 }

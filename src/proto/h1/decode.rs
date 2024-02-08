@@ -12,6 +12,11 @@ use super::DecodedLength;
 
 use self::Kind::{Chunked, Eof, Length};
 
+/// Maximum amount of bytes allowed in chunked extensions.
+///
+/// This limit is currentlty applied for the entire body, not per chunk.
+const CHUNKED_EXTENSIONS_LIMIT: u64 = 1024 * 16;
+
 /// Decoders to handle different Transfer-Encodings.
 ///
 /// If a message body does not include a Transfer-Encoding, it *should*
@@ -26,7 +31,11 @@ enum Kind {
     /// A Reader used when a Content-Length header is passed with a positive integer.
     Length(u64),
     /// A Reader used when Transfer-Encoding is `chunked`.
-    Chunked(ChunkedState, u64),
+    Chunked {
+        state: ChunkedState,
+        chunk_len: u64,
+        extensions_cnt: u64,
+    },
     /// A Reader used for responses that don't indicate a length or chunked.
     ///
     /// The bool tracks when EOF is seen on the transport.
@@ -48,6 +57,7 @@ enum Kind {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum ChunkedState {
+    Start,
     Size,
     SizeLws,
     Extension,
@@ -73,7 +83,11 @@ impl Decoder {
 
     pub(crate) fn chunked() -> Decoder {
         Decoder {
-            kind: Kind::Chunked(ChunkedState::Size, 0),
+            kind: Kind::Chunked {
+                state: ChunkedState::new(),
+                chunk_len: 0,
+                extensions_cnt: 0,
+            },
         }
     }
 
@@ -96,7 +110,12 @@ impl Decoder {
     pub(crate) fn is_eof(&self) -> bool {
         matches!(
             self.kind,
-            Length(0) | Chunked(ChunkedState::End, _) | Eof(true)
+            Length(0)
+                | Chunked {
+                    state: ChunkedState::End,
+                    ..
+                }
+                | Eof(true)
         )
     }
 
@@ -127,11 +146,15 @@ impl Decoder {
                     Poll::Ready(Ok(buf))
                 }
             }
-            Chunked(ref mut state, ref mut size) => {
+            Chunked {
+                ref mut state,
+                ref mut chunk_len,
+                ref mut extensions_cnt,
+            } => {
                 loop {
                     let mut buf = None;
                     // advances the chunked state
-                    *state = ready!(state.step(cx, body, size, &mut buf))?;
+                    *state = ready!(state.step(cx, body, chunk_len, extensions_cnt, &mut buf))?;
                     if *state == ChunkedState::End {
                         trace!("end of chunked");
                         return Poll::Ready(Ok(Bytes::new()));
@@ -181,19 +204,36 @@ macro_rules! byte (
     })
 );
 
+macro_rules! or_overflow {
+    ($e:expr) => (
+        match $e {
+            Some(val) => val,
+            None => return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid chunk size: overflow",
+            ))),
+        }
+    )
+}
+
 impl ChunkedState {
+    fn new() -> ChunkedState {
+        ChunkedState::Start
+    }
     fn step<R: MemRead>(
         &self,
         cx: &mut Context<'_>,
         body: &mut R,
         size: &mut u64,
+        extensions_cnt: &mut u64,
         buf: &mut Option<Bytes>,
     ) -> Poll<Result<ChunkedState, io::Error>> {
         use self::ChunkedState::*;
         match *self {
+            Start => ChunkedState::read_start(cx, body, size),
             Size => ChunkedState::read_size(cx, body, size),
             SizeLws => ChunkedState::read_size_lws(cx, body),
-            Extension => ChunkedState::read_extension(cx, body),
+            Extension => ChunkedState::read_extension(cx, body, extensions_cnt),
             SizeLf => ChunkedState::read_size_lf(cx, body, *size),
             Body => ChunkedState::read_body(cx, body, size, buf),
             BodyCr => ChunkedState::read_body_cr(cx, body),
@@ -205,24 +245,45 @@ impl ChunkedState {
             End => Poll::Ready(Ok(ChunkedState::End)),
         }
     }
+
+    fn read_start<R: MemRead>(
+        cx: &mut Context<'_>,
+        rdr: &mut R,
+        size: &mut u64,
+    ) -> Poll<Result<ChunkedState, io::Error>> {
+        trace!("Read chunk start");
+
+        let radix = 16;
+        match byte!(rdr, cx) {
+            b @ b'0'..=b'9' => {
+                *size = or_overflow!(size.checked_mul(radix));
+                *size = or_overflow!(size.checked_add((b - b'0') as u64));
+            }
+            b @ b'a'..=b'f' => {
+                *size = or_overflow!(size.checked_mul(radix));
+                *size = or_overflow!(size.checked_add((b + 10 - b'a') as u64));
+            }
+            b @ b'A'..=b'F' => {
+                *size = or_overflow!(size.checked_mul(radix));
+                *size = or_overflow!(size.checked_add((b + 10 - b'A') as u64));
+            }
+            _ => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid chunk size line: missing size digit",
+                )));
+            }
+        }
+
+        Poll::Ready(Ok(ChunkedState::Size))
+    }
+
     fn read_size<R: MemRead>(
         cx: &mut Context<'_>,
         rdr: &mut R,
         size: &mut u64,
     ) -> Poll<Result<ChunkedState, io::Error>> {
         trace!("Read chunk hex size");
-
-        macro_rules! or_overflow {
-            ($e:expr) => (
-                match $e {
-                    Some(val) => val,
-                    None => return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid chunk size: overflow",
-                    ))),
-                }
-            )
-        }
 
         let radix = 16;
         match byte!(rdr, cx) {
@@ -269,6 +330,7 @@ impl ChunkedState {
     fn read_extension<R: MemRead>(
         cx: &mut Context<'_>,
         rdr: &mut R,
+        extensions_cnt: &mut u64,
     ) -> Poll<Result<ChunkedState, io::Error>> {
         trace!("read_extension");
         // We don't care about extensions really at all. Just ignore them.
@@ -283,7 +345,17 @@ impl ChunkedState {
                 io::ErrorKind::InvalidData,
                 "invalid chunk extension contains newline",
             ))),
-            _ => Poll::Ready(Ok(ChunkedState::Extension)), // no supported extensions
+            _ => {
+                *extensions_cnt += 1;
+                if *extensions_cnt >= CHUNKED_EXTENSIONS_LIMIT {
+                    Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "chunk extensions over limit",
+                    )))
+                } else {
+                    Poll::Ready(Ok(ChunkedState::Extension))
+                }
+            } // no supported extensions
         }
     }
     fn read_size_lf<R: MemRead>(
@@ -454,7 +526,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "nightly")]
     impl MemRead for Bytes {
         fn read_mem(&mut self, _: &mut Context<'_>, len: usize) -> Poll<io::Result<Bytes>> {
             let n = std::cmp::min(len, self.len());
@@ -479,12 +550,15 @@ mod tests {
         use std::io::ErrorKind::{InvalidData, InvalidInput, UnexpectedEof};
 
         async fn read(s: &str) -> u64 {
-            let mut state = ChunkedState::Size;
+            let mut state = ChunkedState::new();
             let rdr = &mut s.as_bytes();
             let mut size = 0;
+            let mut ext_cnt = 0;
             loop {
-                let result =
-                    std::future::poll_fn(|cx| state.step(cx, rdr, &mut size, &mut None)).await;
+                let result = std::future::poll_fn(|cx| {
+                    state.step(cx, rdr, &mut size, &mut ext_cnt, &mut None)
+                })
+                .await;
                 let desc = format!("read_size failed for {:?}", s);
                 state = result.expect(desc.as_str());
                 if state == ChunkedState::Body || state == ChunkedState::EndCr {
@@ -495,12 +569,15 @@ mod tests {
         }
 
         async fn read_err(s: &str, expected_err: io::ErrorKind) {
-            let mut state = ChunkedState::Size;
+            let mut state = ChunkedState::new();
             let rdr = &mut s.as_bytes();
             let mut size = 0;
+            let mut ext_cnt = 0;
             loop {
-                let result =
-                    std::future::poll_fn(|cx| state.step(cx, rdr, &mut size, &mut None)).await;
+                let result = std::future::poll_fn(|cx| {
+                    state.step(cx, rdr, &mut size, &mut ext_cnt, &mut None)
+                })
+                .await;
                 state = match result {
                     Ok(s) => s,
                     Err(e) => {
@@ -531,6 +608,9 @@ mod tests {
         // Missing LF or CRLF
         read_err("F\rF", InvalidInput).await;
         read_err("F", UnexpectedEof).await;
+        // Missing digit
+        read_err("\r\n\r\n", InvalidInput).await;
+        read_err("\r\n", InvalidInput).await;
         // Invalid hex digit
         read_err("X\r\n", InvalidInput).await;
         read_err("1X\r\n", InvalidInput).await;
@@ -588,6 +668,32 @@ mod tests {
         assert_eq!(16, buf.len());
         let result = String::from_utf8(buf.as_ref().to_vec()).expect("decode String");
         assert_eq!("1234567890abcdef", &result);
+    }
+
+    #[tokio::test]
+    async fn test_read_chunked_extensions_over_limit() {
+        // construct a chunked body where each individual chunked extension
+        // is totally fine, but combined is over the limit.
+        let per_chunk = super::CHUNKED_EXTENSIONS_LIMIT * 2 / 3;
+        let mut scratch = vec![];
+        for _ in 0..2 {
+            scratch.extend(b"1;");
+            scratch.extend(b"x".repeat(per_chunk as usize));
+            scratch.extend(b"\r\nA\r\n");
+        }
+        scratch.extend(b"0\r\n\r\n");
+        let mut mock_buf = Bytes::from(scratch);
+
+        let mut decoder = Decoder::chunked();
+        let buf1 = decoder.decode_fut(&mut mock_buf).await.expect("decode1");
+        assert_eq!(&buf1[..], b"A");
+
+        let err = decoder
+            .decode_fut(&mut mock_buf)
+            .await
+            .expect_err("decode2");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(err.to_string(), "chunk extensions over limit");
     }
 
     #[cfg(not(miri))]

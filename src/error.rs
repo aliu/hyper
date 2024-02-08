@@ -42,7 +42,6 @@ pub(super) enum Kind {
     Parse(Parse),
     User(User),
     /// A message reached EOF, but is not complete.
-    #[allow(unused)]
     IncompleteMessage,
     /// A connection received a message (or bytes) when not waiting for one.
     UnexpectedMessage,
@@ -75,7 +74,6 @@ pub(super) enum Parse {
     Header(Header),
     TooLarge,
     Status,
-    #[cfg_attr(debug_assertions, allow(unused))]
     Internal,
 }
 
@@ -188,7 +186,7 @@ impl Error {
     pub(crate) fn find_source<E: StdError + 'static>(&self) -> Option<&E> {
         let mut cause = self.source();
         while let Some(err) = cause {
-            if let Some(ref typed) = err.downcast_ref() {
+            if let Some(typed) = err.downcast_ref() {
                 return Some(typed);
             }
             cause = err.source();

@@ -6,7 +6,7 @@ use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
 use bytes::{Buf, Bytes};
-use http::header::{HeaderValue, CONNECTION};
+use http::header::{HeaderValue, CONNECTION, TE};
 use http::{HeaderMap, Method, Version};
 use httparse::ParserConfig;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -67,6 +67,7 @@ where
                 // We assume a modern world where the remote speaks HTTP/1.1.
                 // If they tell us otherwise, we'll downgrade in `read_head`.
                 version: Version::HTTP_11,
+                allow_trailer_fields: false,
             },
             _marker: PhantomData,
         }
@@ -150,10 +151,10 @@ where
     }
 
     pub(crate) fn can_read_body(&self) -> bool {
-        match self.state.reading {
-            Reading::Body(..) | Reading::Continue(..) => true,
-            _ => false,
-        }
+        matches!(
+            self.state.reading,
+            Reading::Body(..) | Reading::Continue(..)
+        )
     }
 
     pub(crate) fn has_initial_read_write_state(&self) -> bool {
@@ -238,6 +239,13 @@ where
         } else {
             self.state.reading = Reading::Body(Decoder::new(msg.decode));
         }
+
+        self.state.allow_trailer_fields = msg
+            .head
+            .headers
+            .get(TE)
+            .map(|te_header| te_header == "trailers")
+            .unwrap_or(false);
 
         Poll::Ready(Some(Ok((msg.head, msg.decode, wants))))
     }
@@ -614,6 +622,31 @@ where
         self.state.writing = state;
     }
 
+    pub(crate) fn write_trailers(&mut self, trailers: HeaderMap) {
+        if T::is_server() && self.state.allow_trailer_fields == false {
+            debug!("trailers not allowed to be sent");
+            return;
+        }
+        debug_assert!(self.can_write_body() && self.can_buffer_body());
+
+        match self.state.writing {
+            Writing::Body(ref encoder) => {
+                if let Some(enc_buf) =
+                    encoder.encode_trailers(trailers, self.state.title_case_headers)
+                {
+                    self.io.buffer(enc_buf);
+
+                    self.state.writing = if encoder.is_last() || encoder.is_close_delimited() {
+                        Writing::Closed
+                    } else {
+                        Writing::KeepAlive
+                    };
+                }
+            }
+            _ => unreachable!("write_trailers invalid state: {:?}", self.state.writing),
+        }
+    }
+
     pub(crate) fn write_body_and_end(&mut self, chunk: B) {
         debug_assert!(self.can_write_body() && self.can_buffer_body());
         // empty chunks should be discarded at Dispatcher level
@@ -810,6 +843,8 @@ struct State {
     upgrade: Option<crate::upgrade::Pending>,
     /// Either HTTP/1.0 or 1.1 connection
     version: Version,
+    /// Flag to track if trailer fields are allowed to be sent
+    allow_trailer_fields: bool,
 }
 
 #[derive(Debug)]
@@ -918,11 +953,7 @@ impl State {
     }
 
     fn wants_keep_alive(&self) -> bool {
-        if let KA::Disabled = self.keep_alive.status() {
-            false
-        } else {
-            true
-        }
+        !matches!(self.keep_alive.status(), KA::Disabled)
     }
 
     fn try_keep_alive<T: Http1Transaction>(&mut self) {

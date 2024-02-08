@@ -6,8 +6,8 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use http::header::Entry;
 use http::header::ValueIter;
-use http::header::{self, HeaderName, HeaderValue};
-use http::{HeaderMap, Method, StatusCode, Version};
+use http::header::{self, HeaderMap, HeaderName, HeaderValue};
+use http::{Method, StatusCode, Version};
 use tokio::time::Instant;
 use tracing::{debug, error, trace, trace_span, warn};
 
@@ -158,7 +158,7 @@ impl Http1Transaction for Server {
                         Version::HTTP_10
                     };
 
-                    record_header_indices(bytes, &req.headers, &mut headers_indices)?;
+                    record_header_indices(bytes, req.headers, &mut headers_indices)?;
                     headers_len = req.headers.len();
                 }
                 Ok(httparse::Status::Partial) => return Ok(None),
@@ -210,7 +210,7 @@ impl Http1Transaction for Server {
             None
         };
 
-        let mut headers = ctx.cached_headers.take().unwrap_or_else(HeaderMap::new);
+        let mut headers = ctx.cached_headers.take().unwrap_or_default();
 
         headers.reserve(headers_len);
 
@@ -441,8 +441,10 @@ impl Http1Transaction for Server {
         };
 
         debug!("sending automatic response ({}) for parse error", status);
-        let mut msg = MessageHead::default();
-        msg.subject = status;
+        let msg = MessageHead {
+            subject: status,
+            ..Default::default()
+        };
         Some(msg)
     }
 
@@ -461,16 +463,13 @@ impl Server {
     }
 
     fn can_chunked(method: &Option<Method>, status: StatusCode) -> bool {
-        if method == &Some(Method::HEAD) || method == &Some(Method::CONNECT) && status.is_success()
+        if method == &Some(Method::HEAD)
+            || method == &Some(Method::CONNECT) && status.is_success()
+            || status.is_informational()
         {
             false
-        } else if status.is_informational() {
-            false
         } else {
-            match status {
-                StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED => false,
-                _ => true,
-            }
+            !matches!(status, StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED)
         }
     }
 
@@ -478,10 +477,7 @@ impl Server {
         if status.is_informational() || method == &Some(Method::CONNECT) && status.is_success() {
             false
         } else {
-            match status {
-                StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED => false,
-                _ => true,
-            }
+            !matches!(status, StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED)
         }
     }
 
@@ -619,6 +615,7 @@ impl Server {
         };
 
         let mut encoder = Encoder::length(0);
+        let mut allowed_trailer_fields: Option<Vec<HeaderValue>> = None;
         let mut wrote_date = false;
         let mut cur_name = None;
         let mut is_name_written = false;
@@ -805,6 +802,38 @@ impl Server {
                 header::DATE => {
                     wrote_date = true;
                 }
+                header::TRAILER => {
+                    // check that we actually can send a chunked body...
+                    if msg.head.version == Version::HTTP_10
+                        || !Server::can_chunked(msg.req_method, msg.head.subject)
+                    {
+                        continue;
+                    }
+
+                    if !is_name_written {
+                        is_name_written = true;
+                        header_name_writer.write_header_name_with_colon(
+                            dst,
+                            "trailer: ",
+                            header::TRAILER,
+                        );
+                        extend(dst, value.as_bytes());
+                    } else {
+                        extend(dst, b", ");
+                        extend(dst, value.as_bytes());
+                    }
+
+                    match allowed_trailer_fields {
+                        Some(ref mut allowed_trailer_fields) => {
+                            allowed_trailer_fields.push(value);
+                        }
+                        None => {
+                            allowed_trailer_fields = Some(vec![value]);
+                        }
+                    }
+
+                    continue 'headers;
+                }
                 _ => (),
             }
             //TODO: this should perhaps instead combine them into
@@ -889,6 +918,12 @@ impl Server {
             extend(dst, b"\r\n");
         }
 
+        if encoder.is_chunked() {
+            if let Some(allowed_trailer_fields) = allowed_trailer_fields {
+                encoder = encoder.into_chunked_with_trailing_fields(allowed_trailer_fields);
+            }
+        }
+
         Ok(encoder.set_last(is_last))
     }
 }
@@ -949,7 +984,7 @@ impl Http1Transaction for Client {
                         } else {
                             Version::HTTP_10
                         };
-                        record_header_indices(bytes, &res.headers, &mut headers_indices)?;
+                        record_header_indices(bytes, res.headers, &mut headers_indices)?;
                         let headers_len = res.headers.len();
                         (len, status, reason, version, headers_len)
                     }
@@ -978,7 +1013,7 @@ impl Http1Transaction for Client {
 
             let slice = slice.freeze();
 
-            let mut headers = ctx.cached_headers.take().unwrap_or_else(HeaderMap::new);
+            let mut headers = ctx.cached_headers.take().unwrap_or_default();
 
             let mut keep_alive = version == Version::HTTP_11;
 
@@ -1293,6 +1328,19 @@ impl Client {
             }
         };
 
+        let encoder = encoder.map(|enc| {
+            if enc.is_chunked() {
+                let allowed_trailer_fields: Vec<HeaderValue> =
+                    headers.get_all(header::TRAILER).iter().cloned().collect();
+
+                if !allowed_trailer_fields.is_empty() {
+                    return enc.into_chunked_with_trailing_fields(allowed_trailer_fields);
+                }
+            }
+
+            enc
+        });
+
         // This is because we need a second mutable borrow to remove
         // content-length header.
         if let Some(encoder) = encoder {
@@ -1454,7 +1502,7 @@ fn title_case(dst: &mut Vec<u8>, name: &[u8]) {
     }
 }
 
-fn write_headers_title_case(headers: &HeaderMap, dst: &mut Vec<u8>) {
+pub(crate) fn write_headers_title_case(headers: &HeaderMap, dst: &mut Vec<u8>) {
     for (name, value) in headers {
         title_case(dst, name.as_str().as_bytes());
         extend(dst, b": ");
@@ -1463,7 +1511,7 @@ fn write_headers_title_case(headers: &HeaderMap, dst: &mut Vec<u8>) {
     }
 }
 
-fn write_headers(headers: &HeaderMap, dst: &mut Vec<u8>) {
+pub(crate) fn write_headers(headers: &HeaderMap, dst: &mut Vec<u8>) {
     for (name, value) in headers {
         extend(dst, name.as_str().as_bytes());
         extend(dst, b": ");

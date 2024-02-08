@@ -4,8 +4,7 @@ use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
 use bytes::Bytes;
-use futures_channel::mpsc;
-use futures_channel::oneshot;
+use futures_channel::{mpsc, oneshot};
 use futures_util::{stream::FusedStream, Stream}; // for mpsc::Receiver
 use http::HeaderMap;
 use http_body::{Body, Frame, SizeHint};
@@ -38,7 +37,6 @@ pub struct Incoming {
 }
 
 enum Kind {
-    #[allow(dead_code)]
     Empty,
     Chan {
         content_length: DecodedLength,
@@ -84,7 +82,7 @@ impl Incoming {
     ///
     /// Useful when wanting to stream chunks from another thread.
     #[inline]
-    #[allow(unused)]
+    #[cfg(test)]
     pub(crate) fn channel() -> (Sender, Incoming) {
         Self::new_channel(DecodedLength::CHUNKED, /*wanter =*/ false)
     }
@@ -138,14 +136,13 @@ impl Incoming {
         if !content_length.is_exact() && recv.is_end_stream() {
             content_length = DecodedLength::ZERO;
         }
-        let body = Incoming::new(Kind::H2 {
+
+        Incoming::new(Kind::H2 {
             data_done: false,
             ping,
             content_length,
             recv,
-        });
-
-        body
+        })
     }
 
     #[cfg(feature = "ffi")]
@@ -183,13 +180,9 @@ impl Body for Incoming {
                 want_tx.send(WANT_READY);
 
                 if !data_rx.is_terminated() {
-                    match ready!(Pin::new(data_rx).poll_next(cx)?) {
-                        Some(chunk) => {
-                            len.sub_if(chunk.len() as u64);
-                            return Poll::Ready(Some(Ok(Frame::data(chunk))));
-                        }
-                        // fall through to trailers
-                        None => (),
+                    if let Some(chunk) = ready!(Pin::new(data_rx).poll_next(cx)?) {
+                        len.sub_if(chunk.len() as u64);
+                        return Poll::Ready(Some(Ok(Frame::data(chunk))));
                     }
                 }
 
@@ -256,22 +249,18 @@ impl Body for Incoming {
     }
 
     fn size_hint(&self) -> SizeHint {
-        macro_rules! opt_len {
-            ($content_length:expr) => {{
-                let mut hint = SizeHint::default();
-
-                if let Some(content_length) = $content_length.into_opt() {
-                    hint.set_exact(content_length);
-                }
-
-                hint
-            }};
+        fn opt_len(decoded_length: DecodedLength) -> SizeHint {
+            if let Some(content_length) = decoded_length.into_opt() {
+                SizeHint::with_exact(content_length)
+            } else {
+                SizeHint::default()
+            }
         }
 
         match self.kind {
             Kind::Empty => SizeHint::with_exact(0),
-            Kind::Chan { content_length, .. } => opt_len!(content_length),
-            Kind::H2 { content_length, .. } => opt_len!(content_length),
+            Kind::Chan { content_length, .. } => opt_len(content_length),
+            Kind::H2 { content_length, .. } => opt_len(content_length),
             #[cfg(feature = "ffi")]
             Kind::Ffi(..) => SizeHint::default(),
         }
@@ -314,11 +303,13 @@ impl Sender {
         }
     }
 
+    #[cfg(test)]
     async fn ready(&mut self) -> crate::Result<()> {
         std::future::poll_fn(|cx| self.poll_ready(cx)).await
     }
 
     /// Send data on data channel when it is ready.
+    #[cfg(test)]
     #[allow(unused)]
     pub(crate) async fn send_data(&mut self, chunk: Bytes) -> crate::Result<()> {
         self.ready().await?;
@@ -355,7 +346,7 @@ impl Sender {
             .map_err(|err| err.into_inner().expect("just sent Ok"))
     }
 
-    #[allow(unused)]
+    #[cfg(test)]
     pub(crate) fn abort(mut self) {
         self.send_error(crate::Error::new_body_write_aborted());
     }

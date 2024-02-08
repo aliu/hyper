@@ -88,10 +88,10 @@ fn from_digits(bytes: &[u8]) -> Option<u64> {
 }
 
 pub(super) fn method_has_defined_payload_semantics(method: &Method) -> bool {
-    match *method {
-        Method::GET | Method::HEAD | Method::DELETE | Method::CONNECT => false,
-        _ => true,
-    }
+    !matches!(
+        *method,
+        Method::GET | Method::HEAD | Method::DELETE | Method::CONNECT
+    )
 }
 
 pub(super) fn set_content_length_if_missing(headers: &mut HeaderMap, len: u64) {
